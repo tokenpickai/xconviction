@@ -58,11 +58,11 @@ def assets_section(rows, last):
     tiles.sort(key=lambda t: (-abs(t[1] - t[2]), -(t[1] + t[2])))
     cards = []
     for asset, up, down, flip in tiles:
-        pct = round(100 * up / (up + down))
-        cards.append(f'<div class="card"><div class="tk">{e(asset)}{"<i title=flipped></i>" if flip else ""}</div>'
-                     f'<div class="ct"><span class="dir bullish">▲{up}</span><span class="dir bearish">▼{down}</span></div>'
-                     f'<div class="bar"><span style="width:{pct}%"></span></div></div>')
-    return f'<div class="cards">{"".join(cards)}</div>'
+        cards.append(f'<div class="card"><b>{e(asset)}</b>{"<i title=flipped></i>" if flip else ""}'
+                     f'<span class="dir bullish">▲{up}</span><span class="dir bearish">▼{down}</span></div>')
+    return (f'<div class="strip"><button class="nav prev" aria-label="Scroll left">‹</button>'
+            f'<div class="cards">{"".join(cards)}</div>'
+            f'<button class="nav next" aria-label="Scroll right">›</button></div>')
 
 
 def page(rows, last):
@@ -83,18 +83,27 @@ ul{{list-style:none;padding:0}} li{{padding:8px 0;border-bottom:1px solid var(--
 .w-low .wt{{color:var(--mute);border-color:var(--line)}}
 .flip{{font-size:11px;color:var(--flip);border:1px solid var(--flip);border-radius:999px;padding:1px 7px;margin-right:4px}}
 .logo{{display:flex;align-items:center;gap:6px;font-size:26px;font-weight:700;letter-spacing:-.5px;margin:8px 0 20px}} .logo svg{{width:26px;height:26px;fill:var(--fg)}}
-.cards{{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;
-  -webkit-mask-image:linear-gradient(to right,#000 85%,transparent);mask-image:linear-gradient(to right,#000 85%,transparent)}}
-.cards::-webkit-scrollbar{{display:none}}
-.card{{flex:0 0 96px;scroll-snap-align:start;background:var(--tile);border-radius:10px;padding:10px 12px}}
-.tk{{font-weight:700;font-size:15px;display:flex;align-items:center;gap:5px}} .tk i{{width:7px;height:7px;border-radius:50%;background:var(--flip)}}
-.ct{{display:flex;gap:8px;font-size:13px;font-weight:600;margin:4px 0 6px}}
-.bar{{height:4px;border-radius:2px;background:var(--down);overflow:hidden}} .bar span{{display:block;height:100%;background:var(--up)}}
+.strip{{position:relative}}
+.cards{{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}} .cards::-webkit-scrollbar{{display:none}}
+.card{{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--tile);border-radius:999px;padding:4px 12px;font-size:13px;white-space:nowrap}}
+.card b{{font-weight:700}} .card .dir{{font-weight:600}} .card i{{width:6px;height:6px;border-radius:50%;background:var(--flip)}}
+.nav{{position:absolute;top:0;bottom:0;width:48px;border:0;font-size:22px;color:var(--fg);cursor:pointer;opacity:0;transition:opacity .15s}}
+.nav.prev{{left:0;background:linear-gradient(to right,var(--bg) 40%,transparent);text-align:left}}
+.nav.next{{right:0;background:linear-gradient(to left,var(--bg) 40%,transparent);text-align:right}}
+.strip:hover .nav:not([hidden]){{opacity:1}} .nav[hidden]{{display:none}}
 </style>
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
 {assets_section(rows, last)}
 <h2>Calls ({len(calls)})</h2><ul>{"".join(item(r) for r in calls)}</ul>
 <h2>On-chain ({len(chain)})</h2><ul>{"".join(item(r) for r in chain)}</ul>
+<script>
+const c = document.querySelector('.cards'), prev = document.querySelector('.prev'), next = document.querySelector('.next');
+const sync = () => {{ prev.hidden = c.scrollLeft <= 0; next.hidden = c.scrollLeft + c.clientWidth >= c.scrollWidth - 1; }};
+prev.onclick = () => c.scrollBy({{left: -c.clientWidth * 0.8}});
+next.onclick = () => c.scrollBy({{left: c.clientWidth * 0.8}});
+c.parentElement.addEventListener('wheel', ev => {{ if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) {{ c.scrollLeft += ev.deltaY; ev.preventDefault(); }} }}, {{passive: false}});
+c.addEventListener('scroll', sync); addEventListener('resize', sync); sync();
+</script>
 """
 
 
