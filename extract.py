@@ -20,10 +20,11 @@ Two kinds of item:
 1. "call": the author's own directional view on a crypto asset (a token, or the market as a whole as asset "CRYPTO").
    - Only when the view is in the author's own voice. Quotes of others, jokes, questions ("when does X launch?"), comparisons and hypotheticals with no position are NOT calls.
    - A post that names a coin with no direction is not a call.
+   - Promotional posts (podcast or video episode blurbs, sponsor reads, event plugs) are NOT calls, even if they describe market views.
    - direction: bullish or bearish.
    - weight:
        high   = strong conviction in his own words: states a position or size, "strongly", "at these levels", "buying", "shorted", a clear thesis with reasons.
-       medium = a clear directional view, some reasoning, no stated position.
+       medium = a clear directional view, some reasoning, no stated position; or saying he still holds / hasn't sold a position (bullish).
        low    = casual, hedged or conditional ("if X gets attention, maybe..."), or a short throwaway reply.
    - When unsure between two weights, pick the lower one.
 
@@ -31,6 +32,7 @@ Two kinds of item:
    - direction = the market pressure it implies for the asset: deposit to exchange, selling, opening shorts = bearish; withdrawal from exchange, buying, opening longs, inflows = bullish. Liquidations: bearish for longs liquidated, bullish for shorts liquidated.
    - weight by USD size: high >= $50M, medium >= $5M, low below $5M.
    - A post covering several assets gives one item per asset.
+   - Skip moves by hackers, exploiters and scammers (laundering or dumping stolen funds): no item.
 
 asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole.
 summary: one plain sentence a reader can act on, with numbers and the actor when given (e.g. "BlackRock moved 7,244 BTC ($558M) out of its ETF", "Strongly bullish SOL; says the single-chain thesis still holds").
