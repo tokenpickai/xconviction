@@ -105,7 +105,7 @@ def page(rows):
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Xconviction</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Space+Grotesk:wght@600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Archivo:wght@900&display=swap');
 :root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:#ffad1f;--hi:#7856ff;--md:#1d9bf0}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -117,7 +117,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .wt,.flip{{font-size:12px;line-height:16px;font-weight:500;border-radius:999px;padding:0 8px;margin-right:6px;border:1px solid;display:inline-block}}
 .w-high .wt{{color:var(--hi);border-color:var(--hi)}} .w-medium .wt{{color:var(--md);border-color:var(--md)}} .w-low .wt{{color:var(--mute);border-color:var(--mute)}}
 .flip{{color:var(--flip);border-color:var(--flip)}}
-.logo{{display:flex;align-items:center;font:600 20px/24px 'Space Grotesk',sans-serif;letter-spacing:-.3px;margin:4px 0 16px}}
+.logo{{display:flex;align-items:center;font:900 20px/24px Archivo,sans-serif;letter-spacing:-.4px;margin:4px 0 16px}}
 .updated{{margin-left:auto;font:400 13px/20px TwitterChirp,Inter,sans-serif;letter-spacing:0;color:var(--mute)}}
 .logo svg{{width:17px;height:17px;fill:var(--fg);margin-right:1px}}
 .strip{{position:relative}}
