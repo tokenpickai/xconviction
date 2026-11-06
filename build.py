@@ -8,13 +8,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import fetch
+
 ROOT = Path(__file__).parent
 W = {"high": 3, "medium": 2, "low": 1}
 WINDOW_DAYS = 7  # consensus only looks this far back, for every account, old or new
 
 
 def load():
-    con = sqlite3.connect(ROOT / "xconviction.db")
+    con = fetch.db()
     cols = "post_id handle created_at kind asset direction weight summary".split()
     rows = [dict(zip(cols, r)) for r in con.execute(f"select {','.join(cols)} from calls order by created_at")]
     # a flip = an account's firm call on an asset pointing the other way from its previous firm call;
@@ -28,10 +30,16 @@ def load():
         r["flip"] = prev is not None and prev["direction"] != r["direction"]
         last[key] = r
     names = dict(con.execute("select handle, name from accounts"))
+    (ROOT / "site" / "avatars").mkdir(parents=True, exist_ok=True)
+    avatars = set()
+    for handle, blob in con.execute("select handle, avatar from accounts where avatar is not null"):
+        (ROOT / "site" / "avatars" / f"{handle}.jpg").write_bytes(blob)
+        avatars.add(handle)
     at_call = {(p, a): v for p, a, v in con.execute("select post_id, asset, price from call_prices")}
     now = dict(con.execute("select symbol, price from coins"))
     for r in rows:
         r["name"] = names.get(r["handle"], "")
+        r["avatar"] = r["handle"] in avatars
         r["p0"], r["p1"] = at_call.get((r["post_id"], r["asset"])), now.get(r["asset"])
     return rows
 
@@ -66,8 +74,9 @@ def item(r, show_asset=True):
     arrow = "▲" if r["direction"] == "bullish" else "▼"
     flip = '<span class="flip">flipped</span>' if r.get("flip") else ""
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
+    pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
     return (f'<li class="w-{r["weight"]}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
-            f'<span class="wt">{r["weight"]}</span>{flip} <b>{e(speaker(r))}:</b> {e(r["summary"])}'
+            f'<span class="wt">{r["weight"]}</span>{flip} {pic}<b>{e(speaker(r))}:</b> {e(r["summary"])}'
             f'<div class="meta">{local_time(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
@@ -123,6 +132,7 @@ body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter
   -webkit-font-smoothing:antialiased;max-width:860px;margin:0 auto;padding:16px}}
 h2{{font-size:20px;line-height:24px;font-weight:800;margin:32px 0 4px;padding-bottom:12px;border-bottom:1px solid var(--line)}}
 ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px solid var(--line)}}
+.av{{width:18px;height:18px;border-radius:50%;vertical-align:-4px;margin-right:4px}}
 .meta{{color:var(--mute);font-size:13px;margin-top:4px}} .meta a{{color:var(--mute);text-decoration:none}} .meta a:hover{{text-decoration:underline}}
 .dir.bullish{{color:var(--up)}} .dir.bearish{{color:var(--down)}} .asset{{font-weight:700;margin-right:4px}}
 .wt,.flip{{font-size:12px;line-height:16px;font-weight:500;border-radius:999px;padding:0 8px;margin-right:6px;border:1px solid;display:inline-block}}

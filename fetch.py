@@ -32,13 +32,23 @@ def db(path=ROOT / "xconviction.db"):
     con.execute("""create table if not exists posts(
         id text primary key, handle text, created_at text, text text,
         kind text, conversation_id text, metrics text, raw text)""")
-    con.execute("create table if not exists accounts(handle text primary key, name text)")
+    con.execute("create table if not exists accounts(handle text primary key, name text, avatar blob)")
+    if "avatar" not in [c[1] for c in con.execute("pragma table_info(accounts)")]:
+        con.execute("alter table accounts add column avatar blob")
     return con
 
 
 def names(con, handles, tok):
-    users = get("/users/by", {"usernames": ",".join(handles)}, tok).get("data", [])
-    con.executemany("insert or replace into accounts values(?,?)", [(u["username"], u["name"]) for u in users])
+    users = get("/users/by", {"usernames": ",".join(handles), "user.fields": "profile_image_url"}, tok).get("data", [])
+    for u in users:
+        con.execute("""insert into accounts(handle, name) values(?,?)
+            on conflict(handle) do update set name=excluded.name""", (u["username"], u["name"]))
+        try:
+            with urllib.request.urlopen(urllib.request.Request(
+                    u["profile_image_url"], headers={"User-Agent": "xconviction"}), timeout=15) as r:
+                con.execute("update accounts set avatar=? where handle=?", (r.read(), u["username"]))
+        except (KeyError, OSError) as err:  # keep the last good picture; a missing one isn't worth failing the run
+            print(f"@{u['username']}: no avatar update ({err})")
     con.commit()
 
 
