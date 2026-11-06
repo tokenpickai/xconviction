@@ -2,10 +2,11 @@
 
     python3 build.py && open site/index.html
 """
-import html, sqlite3
+import html, re, sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).parent
 W = {"high": 3, "medium": 2, "low": 1}
@@ -51,13 +52,23 @@ def e(s):
     return html.escape(str(s))
 
 
+def speaker(r):
+    # plain name for quick reading: drop emoji, and fall back to the handle if nothing is left
+    return re.sub(r"[^\w .'-]", "", r["name"]).strip() or r["handle"]
+
+
+def local_time(iso):
+    t = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(ZoneInfo("America/Vancouver"))
+    return f"{t:%b} {t.day}, {t.hour % 12 or 12}:{t:%M} {t:%p}"
+
+
 def item(r, show_asset=True):
     arrow = "▲" if r["direction"] == "bullish" else "▼"
     flip = '<span class="flip">flipped</span>' if r.get("flip") else ""
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
     return (f'<li class="w-{r["weight"]}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
-            f'<span class="wt">{r["weight"]}</span>{flip} {e(r["summary"])}'
-            f'<div class="meta">{e(r["name"])} @{e(r["handle"])} ·{r["created_at"][5:16].replace("T", " ")} UTC · {move(r)}'
+            f'<span class="wt">{r["weight"]}</span>{flip} <b>{e(speaker(r))}:</b> {e(r["summary"])}'
+            f'<div class="meta">{local_time(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
@@ -106,7 +117,7 @@ def page(rows):
 <title>Xconviction</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Archivo:wght@800&display=swap');
-:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:#ffad1f;--hi:#7856ff;--md:#1d9bf0}}
+:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:var(--fg)}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;max-width:860px;margin:0 auto;padding:16px}}
@@ -115,8 +126,8 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .meta{{color:var(--mute);font-size:13px;margin-top:4px}} .meta a{{color:var(--mute);text-decoration:none}} .meta a:hover{{text-decoration:underline}}
 .dir.bullish{{color:var(--up)}} .dir.bearish{{color:var(--down)}} .asset{{font-weight:700;margin-right:4px}}
 .wt,.flip{{font-size:12px;line-height:16px;font-weight:500;border-radius:999px;padding:0 8px;margin-right:6px;border:1px solid;display:inline-block}}
-.w-high .wt{{color:var(--hi);border-color:var(--hi)}} .w-medium .wt{{color:var(--md);border-color:var(--md)}} .w-low .wt{{color:var(--mute);border-color:var(--mute)}}
-.flip{{color:var(--flip);border-color:var(--flip)}}
+.w-high .wt{{color:var(--hi);border-color:var(--hi)}} .w-medium .wt{{color:var(--md);border-color:var(--md)}} .w-low .wt{{color:var(--mute);border-color:var(--line)}}
+.flip{{color:var(--bg);background:var(--fg);border-color:var(--fg)}}
 .logo{{display:flex;align-items:center;font:800 20px/24px Archivo,sans-serif;letter-spacing:-.4px;margin:4px 0 16px}}
 .updated{{margin-left:auto;font:400 13px/20px TwitterChirp,Inter,sans-serif;letter-spacing:0;color:var(--mute)}}
 .logo svg{{width:17px;height:17px;fill:var(--fg);margin-right:1px}}
