@@ -23,6 +23,9 @@ def load():
         prev = last.get(key)
         r["flip"] = prev is not None and prev["direction"] != r["direction"]
         last[key] = r
+    names = dict(con.execute("select handle, name from accounts"))
+    for r in rows:
+        r["name"] = names.get(r["handle"], "")
     return rows, last
 
 
@@ -36,29 +39,39 @@ def item(r, show_asset=True):
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
     return (f'<li class="w-{r["weight"]}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
             f'<span class="wt">{r["weight"]}</span>{flip} {e(r["summary"])}'
-            f'<div class="meta">@{e(r["handle"])} · {r["created_at"][5:16].replace("T", " ")} UTC · '
+            f'<div class="meta">{e(r["name"])} @{e(r["handle"])} ·{r["created_at"][5:16].replace("T", " ")} UTC · '
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
+def lean(score):
+    return "bullish" if score > 0 else "bearish" if score < 0 else "mixed"
+
+
+def signed(r):
+    return W[r["weight"]] * (1 if r["direction"] == "bullish" else -1)
+
+
 def assets_section(rows, last):
+    """One card per asset: account consensus (each account's latest call, weighted) plus on-chain lean."""
     by_asset = defaultdict(list)
     for r in rows:
         by_asset[r["asset"]].append(r)
     ranked = sorted(by_asset.items(), key=lambda kv: -sum(W[r["weight"]] for r in kv[1]))
-    out = []
+    cards = []
     for asset, rs in ranked:
-        stances = [f'<span class="dir {r["direction"]}">{"▲" if r["direction"] == "bullish" else "▼"} '
-                   f'@{e(h)} {r["direction"]} ({r["weight"]}){" · flipped" if r["flip"] else ""}</span>'
-                   for (h, a), r in last.items() if a == asset]
+        stances = [r for (h, a), r in last.items() if a == asset]
         flow = [r for r in rs if r["kind"] == "onchain"]
-        net = sum(W[r["weight"]] * (1 if r["direction"] == "bullish" else -1) for r in flow)
-        flow_txt = (f'<span class="dir {"bullish" if net > 0 else "bearish" if net < 0 else ""}">'
-                    f'on-chain {"bullish" if net > 0 else "bearish" if net < 0 else "mixed"} '
-                    f'({len(flow)} signal{"s" * (len(flow) != 1)})</span>') if flow else ""
-        items = "".join(item(r, False) for r in reversed(rs))
-        out.append(f'<details><summary><b class="asset">{e(asset)}</b> {" ".join(stances)} {flow_txt}</summary>'
-                   f'<ul>{items}</ul></details>')
-    return "".join(out)
+        lines = []
+        if stances:
+            bull = sum(r["direction"] == "bullish" for r in stances)
+            c = lean(sum(signed(r) for r in stances))
+            flip = ' <span class="flip">flip</span>' if any(r["flip"] for r in stances) else ""
+            lines.append(f'<div class="dir {c}">Accounts: {c} ({bull}▲ {len(stances) - bull}▼){flip}</div>')
+        if flow:
+            c = lean(sum(signed(r) for r in flow))
+            lines.append(f'<div class="dir {c}">On-chain: {c} ({len(flow)})</div>')
+        cards.append(f'<div class="card"><b>{e(asset)}</b>{"".join(lines)}</div>')
+    return f'<div class="cards">{"".join(cards)}</div>'
 
 
 def page(rows, last):
@@ -76,13 +89,13 @@ ul{{list-style:none;padding:0}} li{{padding:8px 0;border-bottom:1px solid var(--
 .dir.bullish{{color:var(--up)}} .dir.bearish{{color:var(--down)}} .asset{{margin-right:4px}}
 .wt{{font-size:11px;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-right:4px;font-weight:400}}
 .flip{{font-size:11px;color:var(--flip);border:1px solid var(--flip);border-radius:4px;padding:0 4px;margin-right:4px}}
-details{{border-bottom:1px solid var(--line);padding:8px 0}} summary{{cursor:pointer}} summary .dir{{margin-left:8px;font-size:13px}}
+.cards{{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}}
+.card{{flex:0 0 auto;min-width:150px;border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px}} .card b{{font-size:15px}}
 </style>
 <h1>Xconviction</h1>
-<nav><a href="#calls">Calls ({len(calls)})</a><a href="#assets">Assets</a><a href="#onchain">On-chain ({len(chain)})</a></nav>
-<h2 id="calls">Calls</h2><ul>{"".join(item(r) for r in calls)}</ul>
-<h2 id="assets">Assets</h2><p class="meta">Current stance = each account's latest call. Sorted by how much weighted activity the asset has.</p>{assets_section(rows, last)}
-<h2 id="onchain">On-chain</h2><ul>{"".join(item(r) for r in chain)}</ul>
+<h2>Assets</h2><p class="meta">Consensus from each account's latest call (weighted) and on-chain signals. Most active first.</p>{assets_section(rows, last)}
+<h2>Calls ({len(calls)})</h2><ul>{"".join(item(r) for r in calls)}</ul>
+<h2>On-chain ({len(chain)})</h2><ul>{"".join(item(r) for r in chain)}</ul>
 """
 
 

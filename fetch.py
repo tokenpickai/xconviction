@@ -31,7 +31,14 @@ def db():
     con.execute("""create table if not exists posts(
         id text primary key, handle text, created_at text, text text,
         kind text, conversation_id text, metrics text, raw text)""")
+    con.execute("create table if not exists accounts(handle text primary key, name text)")
     return con
+
+
+def names(con, handles, tok):
+    users = get("/users/by", {"usernames": ",".join(handles)}, tok).get("data", [])
+    con.executemany("insert or replace into accounts values(?,?)", [(u["username"], u["name"]) for u in users])
+    con.commit()
 
 
 def kind(t, uid):
@@ -77,5 +84,7 @@ if __name__ == "__main__":
     ap.add_argument("--days", type=int)
     args = ap.parse_args()
     con, tok = db(), token()
-    for h in (ROOT / "accounts.txt").read_text().split():
-        fetch(con, h.lstrip("@"), tok, args.days)
+    handles = [h.lstrip("@") for h in (ROOT / "accounts.txt").read_text().split()]
+    names(con, handles, tok)
+    for h in handles:
+        fetch(con, h, tok, args.days)
