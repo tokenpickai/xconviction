@@ -16,10 +16,11 @@ def load():
     con = sqlite3.connect(ROOT / "xconviction.db")
     cols = "post_id handle created_at kind asset direction weight summary".split()
     rows = [dict(zip(cols, r)) for r in con.execute(f"select {','.join(cols)} from calls order by created_at")]
-    # a flip = an account's call on an asset pointing the other way from its previous call on that asset
+    # a flip = an account's firm call on an asset pointing the other way from its previous firm call;
+    # low-weight remarks can't flip
     last = {}
     for r in rows:
-        if r["kind"] != "call":
+        if r["kind"] != "call" or r["weight"] == "low":
             continue
         key = (r["handle"], r["asset"])
         prev = last.get(key)
@@ -62,7 +63,7 @@ def item(r, show_asset=True):
 
 def consensus(rows, cutoff):
     """One vote per account per asset inside the window, so a busy account can't drown out the rest.
-    An account's vote is its latest call, or the net of its on-chain signals if it made no call."""
+    An account's vote is its latest medium/high call, or the net of its on-chain signals if it made no call."""
     by = defaultdict(lambda: defaultdict(list))
     for r in rows:
         if r["created_at"] >= cutoff:
@@ -73,6 +74,8 @@ def consensus(rows, cutoff):
         flip = False
         for rs in accounts.values():
             calls = [r for r in rs if r["kind"] == "call"]
+            # low-weight remarks only count when the account has no firmer call in the window
+            calls = [r for r in calls if r["weight"] != "low"] or calls
             if calls:
                 net = 1 if calls[-1]["direction"] == "bullish" else -1
                 flip = flip or calls[-1].get("flip", False)

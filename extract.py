@@ -70,8 +70,8 @@ def env(key):
             return line.split("=", 1)[1].strip()
 
 
-def db():
-    con = sqlite3.connect(ROOT / "xconviction.db")
+def db(con=None):
+    con = con or sqlite3.connect(ROOT / "xconviction.db")
     con.executescript("""
         create table if not exists calls(post_id text, handle text, created_at text, kind text,
             asset text, direction text, weight text, summary text);
@@ -93,9 +93,7 @@ def run(client, posts):
     return json.loads(next(b.text for b in resp.content if b.type == "text"))["results"]
 
 
-if __name__ == "__main__":
-    con = db()
-    client = anthropic.Anthropic(api_key=env("ANTHROPIC_API_KEY"))
+def process(con, client):
     todo = con.execute("""select id, handle, created_at, text, kind, conversation_id from posts
         where id not in (select post_id from extracted) order by handle, created_at""").fetchall()
     meta = {p[0]: p for p in todo}
@@ -113,3 +111,7 @@ if __name__ == "__main__":
             con.execute("insert or ignore into extracted values(?)", (p[0],))
         con.commit()
         print(f"{i + len(chunk)}/{len(todo)} posts")
+
+
+if __name__ == "__main__":
+    process(db(), anthropic.Anthropic(api_key=env("ANTHROPIC_API_KEY")))

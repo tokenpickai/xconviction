@@ -12,4 +12,8 @@ assert consensus(rows, "2026-11-01") == [("BTC", 2, 1, False)]
 assert consensus([r("a", "call", "bullish"), r("a", "call", "bearish", flip=True)], "2026-11-01") == [("BTC", 0, 1, True)]
 # anything older than the window drops out
 assert consensus([r("a", "call", "bullish", t="2026-10-01")], "2026-11-01") == []
+# a later low-weight remark can't change the vote
+assert consensus([r("a", "call", "bullish", "medium"), r("a", "call", "bearish", "low")], "2026-11-01") == [("BTC", 1, 0, False)]
+# but low-weight calls still count when they're all the account said
+assert consensus([r("a", "call", "bearish", "low")], "2026-11-01") == [("BTC", 0, 1, False)]
 print("ok")

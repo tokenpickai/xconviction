@@ -26,8 +26,8 @@ def get(path, params, tok):
         return json.load(r)
 
 
-def db():
-    con = sqlite3.connect(ROOT / "xconviction.db")
+def db(path=ROOT / "xconviction.db"):
+    con = sqlite3.connect(path)
     con.execute("""create table if not exists posts(
         id text primary key, handle text, created_at text, text text,
         kind text, conversation_id text, metrics text, raw text)""")
