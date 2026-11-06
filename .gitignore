@@ -2,3 +2,4 @@
 *.db
 Conviction/
 __pycache__/
+.venv/
