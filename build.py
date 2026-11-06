@@ -24,9 +24,24 @@ def load():
         r["flip"] = prev is not None and prev["direction"] != r["direction"]
         last[key] = r
     names = dict(con.execute("select handle, name from accounts"))
+    at_call = {(p, a): v for p, a, v in con.execute("select post_id, asset, price from call_prices")}
+    now = dict(con.execute("select symbol, price from coins"))
     for r in rows:
         r["name"] = names.get(r["handle"], "")
+        r["p0"], r["p1"] = at_call.get((r["post_id"], r["asset"])), now.get(r["asset"])
     return rows, last
+
+
+def usd(x):
+    return f"${x:,.2f}" if x >= 1 else f"${x:.4g}"
+
+
+def move(r):
+    if not (r["p0"] and r["p1"]):
+        return ""
+    pct = 100 * (r["p1"] / r["p0"] - 1)
+    return (f'<span class="px">{usd(r["p0"])} → {usd(r["p1"])} '
+            f'<b class="dir {"bullish" if pct >= 0 else "bearish"}">{pct:+.1f}%</b></span> · ')
 
 
 def e(s):
@@ -39,7 +54,7 @@ def item(r, show_asset=True):
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
     return (f'<li class="w-{r["weight"]}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
             f'<span class="wt">{r["weight"]}</span>{flip} {e(r["summary"])}'
-            f'<div class="meta">{e(r["name"])} @{e(r["handle"])} ·{r["created_at"][5:16].replace("T", " ")} UTC · '
+            f'<div class="meta">{e(r["name"])} @{e(r["handle"])} ·{r["created_at"][5:16].replace("T", " ")} UTC · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
