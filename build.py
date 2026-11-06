@@ -4,10 +4,12 @@
 """
 import html, sqlite3
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 W = {"high": 3, "medium": 2, "low": 1}
+WINDOW_DAYS = 7  # consensus only looks this far back, for every account, old or new
 
 
 def load():
@@ -29,7 +31,7 @@ def load():
     for r in rows:
         r["name"] = names.get(r["handle"], "")
         r["p0"], r["p1"] = at_call.get((r["post_id"], r["asset"])), now.get(r["asset"])
-    return rows, last
+    return rows
 
 
 def usd(x):
@@ -58,21 +60,35 @@ def item(r, show_asset=True):
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
-def assets_section(rows, last):
-    """One card per asset with an up/down consensus count."""
-    by_asset = defaultdict(list)
+def consensus(rows, cutoff):
+    """One vote per account per asset inside the window, so a busy account can't drown out the rest.
+    An account's vote is its latest call, or the net of its on-chain signals if it made no call."""
+    by = defaultdict(lambda: defaultdict(list))
     for r in rows:
-        by_asset[r["asset"]].append(r)
-    tiles = []
-    for asset, rs in by_asset.items():
-        # consensus = each account's latest call + every on-chain signal, counted up vs down
-        votes = [r for (h, a), r in last.items() if a == asset] + [r for r in rs if r["kind"] == "onchain"]
-        up = sum(r["direction"] == "bullish" for r in votes)
-        tiles.append((asset, up, len(votes) - up, any(r.get("flip") for r in votes)))
+        if r["created_at"] >= cutoff:
+            by[r["asset"]][r["handle"]].append(r)
+    out = []
+    for asset, accounts in by.items():
+        up = down = 0
+        flip = False
+        for rs in accounts.values():
+            calls = [r for r in rs if r["kind"] == "call"]
+            if calls:
+                net = 1 if calls[-1]["direction"] == "bullish" else -1
+                flip = flip or calls[-1].get("flip", False)
+            else:
+                net = sum(W[r["weight"]] * (1 if r["direction"] == "bullish" else -1) for r in rs)
+            up += net > 0
+            down += net < 0
+        out.append((asset, up, down, flip))
     # strongest consensus first: biggest up/down gap, then most votes
-    tiles.sort(key=lambda t: (-abs(t[1] - t[2]), -(t[1] + t[2])))
+    return sorted(out, key=lambda t: (-abs(t[1] - t[2]), -(t[1] + t[2])))
+
+
+def assets_section(rows):
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     cards = []
-    for asset, up, down, flip in tiles:
+    for asset, up, down, flip in consensus(rows, cutoff):
         cards.append(f'<div class="card"><b>{e(asset)}</b>{"<i title=flipped></i>" if flip else ""}'
                      f'<span class="dir bullish">▲{up}</span><span class="dir bearish">▼{down}</span></div>')
     return (f'<div class="strip"><button class="nav prev" aria-label="Scroll left">‹</button>'
@@ -80,7 +96,7 @@ def assets_section(rows, last):
             f'<button class="nav next" aria-label="Scroll right">›</button></div>')
 
 
-def page(rows, last):
+def page(rows):
     calls = [r for r in reversed(rows) if r["kind"] == "call"]
     chain = [r for r in reversed(rows) if r["kind"] == "onchain"]
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -110,7 +126,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .strip:hover .nav:not([hidden]){{opacity:1}} .nav[hidden]{{display:none}}
 </style>
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
-{assets_section(rows, last)}
+{assets_section(rows)}
 <h2>Calls ({len(calls)})</h2><ul>{"".join(item(r) for r in calls)}</ul>
 <h2>On-chain ({len(chain)})</h2><ul>{"".join(item(r) for r in chain)}</ul>
 <script>
@@ -125,7 +141,7 @@ c.addEventListener('scroll', sync); addEventListener('resize', sync); sync();
 
 
 if __name__ == "__main__":
-    rows, last = load()
+    rows = load()
     (ROOT / "site").mkdir(exist_ok=True)
-    (ROOT / "site" / "index.html").write_text(page(rows, last))
+    (ROOT / "site" / "index.html").write_text(page(rows))
     print(f"site/index.html: {len(rows)} items")
