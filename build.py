@@ -48,15 +48,20 @@ def assets_section(rows, last):
     by_asset = defaultdict(list)
     for r in rows:
         by_asset[r["asset"]].append(r)
-    ranked = sorted(by_asset.items(), key=lambda kv: -sum(W[r["weight"]] for r in kv[1]))
-    cards = []
-    for asset, rs in ranked:
+    tiles = []
+    for asset, rs in by_asset.items():
         # consensus = each account's latest call + every on-chain signal, counted up vs down
         votes = [r for (h, a), r in last.items() if a == asset] + [r for r in rs if r["kind"] == "onchain"]
         up = sum(r["direction"] == "bullish" for r in votes)
-        flip = '<span class="flip">flip</span>' if any(r.get("flip") for r in votes) else ""
-        cards.append(f'<div class="card"><b>{e(asset)}</b> <span class="dir bullish">▲{up}</span> '
-                     f'<span class="dir bearish">▼{len(votes) - up}</span>{flip}</div>')
+        tiles.append((asset, up, len(votes) - up, any(r.get("flip") for r in votes)))
+    # strongest consensus first: biggest up/down gap, then most votes
+    tiles.sort(key=lambda t: (-abs(t[1] - t[2]), -(t[1] + t[2])))
+    cards = []
+    for asset, up, down, flip in tiles:
+        pct = round(100 * up / (up + down))
+        cards.append(f'<div class="card"><div class="tk">{e(asset)}{"<i title=flipped></i>" if flip else ""}</div>'
+                     f'<div class="ct"><span class="dir bullish">▲{up}</span><span class="dir bearish">▼{down}</span></div>'
+                     f'<div class="bar"><span style="width:{pct}%"></span></div></div>')
     return f'<div class="cards">{"".join(cards)}</div>'
 
 
@@ -66,20 +71,27 @@ def page(rows, last):
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Xconviction</title>
 <style>
-:root{{--bg:#fff;--fg:#111;--mute:#666;--line:#e5e5e5;--up:#0a8a3a;--down:#c62828;--flip:#b26a00}}
-@media (prefers-color-scheme:dark){{:root{{--bg:#111;--fg:#eee;--mute:#999;--line:#2a2a2a;--up:#4cc27a;--down:#ef6b6b;--flip:#f0a940}}}}
+:root{{--bg:#fff;--fg:#111;--mute:#666;--line:#e5e5e5;--tile:#f4f4f5;--up:#0a8a3a;--down:#c62828;--flip:#d97706;--hi:#6d28d9}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#111;--fg:#eee;--mute:#999;--line:#2a2a2a;--tile:#1c1c1f;--up:#4cc27a;--down:#ef6b6b;--flip:#f0a940;--hi:#8b5cf6}}}}
 body{{background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,system-ui,sans-serif;max-width:860px;margin:0 auto;padding:16px}}
 nav a{{margin-right:16px;color:var(--fg)}} h2{{margin-top:32px;border-bottom:1px solid var(--line);padding-bottom:4px}}
-ul{{list-style:none;padding:0}} li{{padding:8px 0;border-bottom:1px solid var(--line)}} li.w-low{{opacity:.7}} li.w-high{{font-weight:600}}
-.meta{{color:var(--mute);font-size:12px;font-weight:400}} .meta a{{color:var(--mute)}}
+ul{{list-style:none;padding:0}} li{{padding:8px 0;border-bottom:1px solid var(--line)}}
+.meta{{color:var(--mute);font-size:12px}} .meta a{{color:var(--mute)}}
 .dir.bullish{{color:var(--up)}} .dir.bearish{{color:var(--down)}} .asset{{margin-right:4px}}
-.wt{{font-size:11px;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-right:4px;font-weight:400}}
-.flip{{font-size:11px;color:var(--flip);border:1px solid var(--flip);border-radius:4px;padding:0 4px;margin-right:4px}}
-.cards{{display:flex;flex-wrap:wrap;gap:8px}}
-.card{{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:14px;white-space:nowrap}}
-.card b{{margin-right:4px}} .card .dir{{margin-left:4px;font-weight:600}} .card .flip{{margin:0 0 0 6px}}
+.wt{{font-size:11px;border-radius:999px;padding:1px 7px;margin-right:4px;border:1px solid}}
+.w-high .wt{{background:var(--hi);border-color:var(--hi);color:#fff}} .w-medium .wt{{color:var(--hi);border-color:var(--hi)}}
+.w-low .wt{{color:var(--mute);border-color:var(--line)}}
+.flip{{font-size:11px;color:var(--flip);border:1px solid var(--flip);border-radius:999px;padding:1px 7px;margin-right:4px}}
+.logo{{display:flex;align-items:center;gap:6px;font-size:26px;font-weight:700;letter-spacing:-.5px;margin:8px 0 20px}} .logo svg{{width:26px;height:26px;fill:var(--fg)}}
+.cards{{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;
+  -webkit-mask-image:linear-gradient(to right,#000 85%,transparent);mask-image:linear-gradient(to right,#000 85%,transparent)}}
+.cards::-webkit-scrollbar{{display:none}}
+.card{{flex:0 0 96px;scroll-snap-align:start;background:var(--tile);border-radius:10px;padding:10px 12px}}
+.tk{{font-weight:700;font-size:15px;display:flex;align-items:center;gap:5px}} .tk i{{width:7px;height:7px;border-radius:50%;background:var(--flip)}}
+.ct{{display:flex;gap:8px;font-size:13px;font-weight:600;margin:4px 0 6px}}
+.bar{{height:4px;border-radius:2px;background:var(--down);overflow:hidden}} .bar span{{display:block;height:100%;background:var(--up)}}
 </style>
-<h1>Xconviction</h1>
+<div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
 {assets_section(rows, last)}
 <h2>Calls ({len(calls)})</h2><ul>{"".join(item(r) for r in calls)}</ul>
 <h2>On-chain ({len(chain)})</h2><ul>{"".join(item(r) for r in chain)}</ul>
