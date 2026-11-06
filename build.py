@@ -129,7 +129,7 @@ def page(rows):
 :root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:var(--fg)}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  -webkit-font-smoothing:antialiased;max-width:860px;margin:0 auto;padding:16px}}
+  -webkit-font-smoothing:antialiased;max-width:600px;margin:0 auto;padding:16px}}
 h2{{font-size:20px;line-height:24px;font-weight:800;margin:32px 0 4px;padding-bottom:12px;border-bottom:1px solid var(--line)}}
 ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px solid var(--line)}}
 .av{{width:18px;height:18px;border-radius:50%;vertical-align:-4px;margin-right:4px}}
