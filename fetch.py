@@ -13,10 +13,11 @@ FIELDS = "created_at,conversation_id,in_reply_to_user_id,referenced_tweets,publi
 
 
 def token():
+    if os.environ.get("X_BEARER_TOKEN"):
+        return os.environ["X_BEARER_TOKEN"]
     for line in (ROOT / ".env").read_text().splitlines():
         if line.startswith("X_BEARER_TOKEN="):
             return line.split("=", 1)[1].strip()
-    return os.environ["X_BEARER_TOKEN"]
 
 
 def get(path, params, tok):

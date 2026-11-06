@@ -2,7 +2,7 @@
 
     .venv/bin/python extract.py
 """
-import json, sqlite3
+import json, os, sqlite3
 from pathlib import Path
 
 import anthropic
@@ -65,6 +65,8 @@ SCHEMA = {
 
 
 def env(key):
+    if os.environ.get(key):
+        return os.environ[key]
     for line in (ROOT / ".env").read_text().splitlines():
         if line.startswith(key + "="):
             return line.split("=", 1)[1].strip()

@@ -1,0 +1,69 @@
+name: pipeline
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install anthropic
+
+      - name: Restore database
+        run: |
+          git fetch origin data
+          git show origin/data:xconviction.db > xconviction.db
+
+      - name: Fetch posts
+        run: python fetch.py
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+
+      - name: Extract calls
+        run: python extract.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Update prices
+        # stale prices are better than no update when CoinGecko rate-limits GitHub's shared IPs
+        continue-on-error: true
+        run: python prices.py
+
+      - run: python build.py
+
+      - name: Save database
+        # the data branch holds only the latest copy, so the db never bloats history
+        run: |
+          mkdir /tmp/data && cp xconviction.db /tmp/data/ && cd /tmp/data
+          git init -q -b data
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add xconviction.db
+          git commit -qm "Update database"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
