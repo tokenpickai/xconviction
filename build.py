@@ -118,6 +118,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .w-high .wt{{color:var(--hi);border-color:var(--hi)}} .w-medium .wt{{color:var(--md);border-color:var(--md)}} .w-low .wt{{color:var(--mute);border-color:var(--mute)}}
 .flip{{color:var(--flip);border-color:var(--flip)}}
 .logo{{display:flex;align-items:center;font-size:28px;font-weight:800;letter-spacing:-.8px;margin:8px 0 20px}}
+.updated{{margin-left:auto;font-size:13px;font-weight:400;letter-spacing:0;color:var(--mute)}}
 .logo svg{{width:24px;height:24px;fill:var(--fg);margin-right:1px;position:relative;top:1px}}
 .strip{{position:relative}}
 .cards{{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}} .cards::-webkit-scrollbar{{display:none}}
@@ -128,11 +129,13 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .nav.next{{right:0;background:linear-gradient(to left,var(--bg) 40%,transparent);text-align:right}}
 .strip:hover .nav:not([hidden]){{opacity:1}} .nav[hidden]{{display:none}}
 </style>
-<div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
+<div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
 {assets_section(rows)}
 <h2>Calls ({len(calls)})</h2><ul>{"".join(item(r) for r in calls)}</ul>
 <h2>On-chain ({len(chain)})</h2><ul>{"".join(item(r) for r in chain)}</ul>
 <script>
+const u = document.querySelector('.updated'), mins = Math.round((Date.now() - new Date(u.dataset.t)) / 60000);
+u.textContent = 'updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
 const c = document.querySelector('.cards'), prev = document.querySelector('.prev'), next = document.querySelector('.next');
 const sync = () => {{ prev.hidden = c.scrollLeft <= 0; next.hidden = c.scrollLeft + c.clientWidth >= c.scrollWidth - 1; }};
 prev.onclick = () => c.scrollBy({{left: -c.clientWidth * 0.8}});
