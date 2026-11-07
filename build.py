@@ -126,14 +126,13 @@ def page(rows):
 <title>Xconviction</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Archivo:wght@800&display=swap');
-:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:var(--fg);--md2:#1d9bf0}}
+:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:var(--fg)}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;max-width:600px;margin:0 auto;padding:16px}}
-.tabs{{display:flex;margin-top:16px;border-bottom:1px solid var(--line)}}
-.tabs button{{flex:1;background:none;border:0;padding:16px 0 0;font:500 15px/20px inherit;font-family:inherit;color:var(--mute);cursor:pointer}}
-.tabs button::after{{content:"";display:block;height:4px;width:56px;margin:14px auto 0;border-radius:2px;background:transparent}}
-.tabs button[aria-selected=true]{{color:var(--fg);font-weight:700}} .tabs button[aria-selected=true]::after{{background:var(--md2)}}
+.tabs{{display:flex;margin-top:16px}}
+.tabs button{{flex:1;background:none;border:0;border-bottom:2px solid var(--line);padding:16px 0;font:500 15px/20px inherit;font-family:inherit;color:var(--mute);cursor:pointer}}
+.tabs button[aria-selected=true]{{color:var(--fg);font-weight:700;border-bottom-color:var(--fg)}}
 .tabs button:hover{{background:var(--tile)}}
 ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px solid var(--line)}}
 .av{{width:18px;height:18px;border-radius:50%;vertical-align:-4px;margin-right:4px}}
