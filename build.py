@@ -126,11 +126,15 @@ def page(rows):
 <title>Xconviction</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Archivo:wght@800&display=swap');
-:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:var(--fg)}}
+:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:var(--fg);--md2:#1d9bf0}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;max-width:600px;margin:0 auto;padding:16px}}
-h2{{font-size:20px;line-height:24px;font-weight:800;margin:32px 0 4px;padding-bottom:12px;border-bottom:1px solid var(--line)}}
+.tabs{{display:flex;margin-top:16px;border-bottom:1px solid var(--line)}}
+.tabs button{{flex:1;background:none;border:0;padding:16px 0 0;font:500 15px/20px inherit;font-family:inherit;color:var(--mute);cursor:pointer}}
+.tabs button::after{{content:"";display:block;height:4px;width:56px;margin:14px auto 0;border-radius:2px;background:transparent}}
+.tabs button[aria-selected=true]{{color:var(--fg);font-weight:700}} .tabs button[aria-selected=true]::after{{background:var(--md2)}}
+.tabs button:hover{{background:var(--tile)}}
 ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px solid var(--line)}}
 .av{{width:18px;height:18px;border-radius:50%;vertical-align:-4px;margin-right:4px}}
 .meta{{color:var(--mute);font-size:13px;margin-top:4px}} .meta a{{color:var(--mute);text-decoration:none}} .meta a:hover{{text-decoration:underline}}
@@ -152,9 +156,19 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 </style>
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
 {assets_section(rows)}
-<h2>Calls ({len(calls)})</h2><ul>{"".join(item(r) for r in calls)}</ul>
-<h2>On-chain ({len(chain)})</h2><ul>{"".join(item(r) for r in chain)}</ul>
+<div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
+<ul id="calls" role="tabpanel">{"".join(item(r) for r in calls)}</ul>
+<ul id="onchain" role="tabpanel">{"".join(item(r) for r in chain)}</ul>
 <script>
+const tabs = document.querySelectorAll('.tabs button');
+const show = name => tabs.forEach(t => {{
+  const on = t.dataset.tab === name;
+  t.setAttribute('aria-selected', on);
+  document.getElementById(t.dataset.tab).hidden = !on;
+}});
+tabs.forEach(t => t.onclick = () => {{ show(t.dataset.tab); try {{ localStorage.tab = t.dataset.tab; }} catch (_) {{}} }});
+let saved; try {{ saved = localStorage.tab; }} catch (_) {{}}
+show(saved === 'onchain' ? 'onchain' : 'calls');
 const u = document.querySelector('.updated'), mins = Math.round((Date.now() - new Date(u.dataset.t)) / 60000);
 u.textContent = 'updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
 const c = document.querySelector('.cards'), prev = document.querySelector('.prev'), next = document.querySelector('.next');
