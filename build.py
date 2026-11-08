@@ -177,7 +177,7 @@ def emerging_section(con, now):
         tag = '<span class="wt new">new</span>' if t["new"] else ""
         pitch = con.execute("""select pitch from themes where theme = ? and pitch is not null
             order by created_at desc limit 1""", (t["theme"],)).fetchone()
-        blocks.append(f'<details><summary><b>{e(t["theme"])}</b>{tag}<span class="meta">{t["posts"]} posts · '
+        blocks.append(f'<details><summary><b>{e(t["theme"])}</b>{tag}<span class="meta">{t["posts"]} post{"s" * (t["posts"] != 1)} · '
                       f'{t["accounts"]} account{"s" * (t["accounts"] != 1)}</span>'
                       f'{f"<div class=pitch>{e(pitch[0])}</div>" if pitch else ""}</summary><ul>{lis}</ul></details>')
     return f'<div class="label">Emerging</div><div class="emerging">{"".join(blocks)}</div>'
