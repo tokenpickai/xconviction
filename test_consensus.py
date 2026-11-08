@@ -58,4 +58,8 @@ con.executemany("insert into themes values(?,?,?,?)", [("7", "a", "2026-11-08T08
 assert "Solo" in [t["theme"] for t in emerging(con, now)]
 # a flip stays flagged after the account repeats its new view
 assert consensus([r("a", "call", "bullish"), r("a", "call", "bearish", flip=True), r("a", "call", "bearish")], "2026-11-01") == [("BTC", 0, 1, True)]
+# order: more accounts first, then more posts, so a contested coin everyone talks about isn't buried
+def v(a, h, d): return dict(handle=h, asset=a, kind="call", direction=d, weight="high", created_at="2026-11-06", flip=False)
+got = consensus([v("ZEC", "a", "bullish"), v("ZEC", "b", "bearish"), v("ZEC", "b", "bearish"), v("WLD", "c", "bearish")], "2026-11-01")
+assert [t[0] for t in got] == ["ZEC", "WLD"], got
 print("ok")

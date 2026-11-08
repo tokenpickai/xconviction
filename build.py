@@ -105,9 +105,10 @@ def consensus(rows, cutoff):
                 net = sum(W[r["weight"]] * (1 if r["direction"] == "bullish" else -1) for r in rs)
             up += net > 0
             down += net < 0
-        out.append((asset, up, down, flip))
-    # strongest consensus first: biggest up/down gap, then most votes
-    return sorted(out, key=lambda t: (-abs(t[1] - t[2]), -(t[1] + t[2])))
+        out.append((asset, up, down, flip, sum(len(rs) for rs in accounts.values())))
+    # most talked-about first: most accounts with a view, then most posts, then the most one-sided
+    out.sort(key=lambda t: (-(t[1] + t[2]), -t[4], -abs(t[1] - t[2])))
+    return [t[:4] for t in out]
 
 
 def picks(rows, now, votes, n=3):
