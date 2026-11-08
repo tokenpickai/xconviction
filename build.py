@@ -143,6 +143,41 @@ def picks_section(rows, now, votes):
     return f'<div class="label">Act now</div><ul class="picks">{"".join(out)}</ul>' if out else ""
 
 
+def emerging(con, now, days=3, n=5):
+    """Themes getting talked about lately: at least 2 posts or 2 accounts in the last `days`,
+    most accounts first, then most posts. new = first ever seen in the last 48h."""
+    cut = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+    fresh = (now - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%S")
+    first = dict(con.execute("select theme, min(created_at) from themes group by theme"))
+    out = []
+    for theme, posts, accounts, latest in con.execute("""select theme, count(distinct post_id), count(distinct handle),
+            max(created_at) from themes where created_at >= ? group by theme""", (cut,)):
+        if posts >= 2 or accounts >= 2:
+            out.append(dict(theme=theme, posts=posts, accounts=accounts, latest=latest, new=first[theme] >= fresh))
+    out.sort(key=lambda t: t["latest"], reverse=True)  # newest first among ties
+    out.sort(key=lambda t: (-t["accounts"], -t["posts"]))
+    return out[:n]
+
+
+def emerging_section(con, now):
+    themes = emerging(con, now)
+    if not themes:
+        return ""
+    names = dict(con.execute("select handle, name from accounts"))
+    blocks = []
+    for t in themes:
+        posts = con.execute("""select p.id, p.handle, p.created_at, p.text from themes t join posts p on p.id = t.post_id
+            where t.theme = ? order by p.created_at desc limit 5""", (t["theme"],)).fetchall()
+        lis = "".join(
+            f'<li><b>{e(speaker(dict(name=names.get(h, ""), handle=h)))}:</b> {e(text[:180])}{"…" if len(text) > 180 else ""}'
+            f'<div class="meta">{local_time(at)} · <a href="https://x.com/{e(h)}/status/{pid}">post</a></div></li>'
+            for pid, h, at, text in posts)
+        tag = '<span class="wt new">new</span>' if t["new"] else ""
+        blocks.append(f'<details><summary><b>{e(t["theme"])}</b>{tag}<span class="meta">{t["posts"]} posts · '
+                      f'{t["accounts"]} account{"s" * (t["accounts"] != 1)}</span></summary><ul>{lis}</ul></details>')
+    return f'<div class="label">Emerging</div><div class="emerging">{"".join(blocks)}</div>'
+
+
 def spend(con, now):
     """Estimated $ over the last n days. User lookups are billed once per UTC day, so take each day's max, not the sum."""
     def since(days):
@@ -172,7 +207,7 @@ def assets_section(rows):
             f'<button class="nav next" aria-label="Scroll right">›</button></div>')
 
 
-def page(rows, spend_html=""):
+def page(rows, spend_html="", emerging_html=""):
     calls = [r for r in reversed(rows) if r["kind"] == "call"]
     chain = [r for r in reversed(rows) if r["kind"] == "onchain"]
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -200,6 +235,9 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .strip{{position:relative}}
 .cards{{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}} .cards::-webkit-scrollbar{{display:none}}
 .card{{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--tile);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:14px;white-space:nowrap}}
+.emerging details{{border-bottom:1px solid var(--line);padding:10px 0}} .emerging summary{{cursor:pointer}}
+.emerging summary .meta{{display:inline;margin-left:8px}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
+.emerging ul{{margin-top:4px}} .emerging li{{padding:8px 0 8px 12px;border-bottom:0;font-size:14px}}
 footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .card{{cursor:pointer}} .card.on{{border-color:var(--fg)}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
@@ -213,6 +251,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
 {assets_section(rows)}
 {picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}
+{emerging_html}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
 <ul id="calls" role="tabpanel">{"".join(item(r) for r in calls)}</ul>
 <ul id="onchain" role="tabpanel">{"".join(item(r) for r in chain)}</ul>
@@ -249,5 +288,6 @@ c.addEventListener('scroll', sync); addEventListener('resize', sync); sync();
 if __name__ == "__main__":
     rows = load()
     (ROOT / "site").mkdir(exist_ok=True)
-    (ROOT / "site" / "index.html").write_text(page(rows, spend(fetch.db(), datetime.now(timezone.utc))))
+    con, now = fetch.db(), datetime.now(timezone.utc)
+    (ROOT / "site" / "index.html").write_text(page(rows, spend(con, now), emerging_section(con, now)))
     print(f"site/index.html: {len(rows)} items")

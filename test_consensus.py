@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import sqlite3
 
-from build import consensus, local_time, picks, speaker, spend
+from build import consensus, emerging, local_time, picks, speaker, spend
 
 
 def r(handle, kind, direction, weight="high", t="2026-11-06", flip=False):
@@ -44,4 +44,12 @@ con.executemany("insert into usage values(?,?,?,?)", [
     ("2026-11-08T01:00:00Z", "x_users", 7, 0.07), ("2026-11-08T02:00:00Z", "x_users", 7, 0.07),
     ("2026-11-08T02:00:00Z", "x_posts", 10, 0.05), ("2026-11-08T02:00:00Z", "claude_tokens", 1000, 0.03)])
 assert "$0.15 last 24h" in spend(con, now), spend(con, now)
+# emerging: a theme 2 accounts picked up ranks first; a single passing mention is left out; new = first seen in 48h
+con.execute("create table themes(post_id text, handle text, created_at text, theme text)")
+con.executemany("insert into themes values(?,?,?,?)", [
+    ("1", "a", "2026-11-08T10:00:00Z", "Elysium"), ("2", "b", "2026-11-08T11:00:00Z", "Elysium"),
+    ("3", "a", "2026-11-07T10:00:00Z", "Privacy"), ("4", "a", "2026-11-07T11:00:00Z", "Privacy"),
+    ("5", "a", "2026-10-20T10:00:00Z", "Privacy"), ("6", "c", "2026-11-08T09:00:00Z", "Once")])
+got = emerging(con, now)
+assert [(t["theme"], t["new"]) for t in got] == [("Elysium", True), ("Privacy", False)], got
 print("ok")

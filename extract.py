@@ -41,7 +41,9 @@ Two kinds of item:
 asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole.
 summary: one plain sentence a reader can act on, with numbers and the actor when given (e.g. "BlackRock moved 7,244 BTC ($558M) out of its ETF", "Strongly bullish SOL; says the single-chain thesis still holds").
 
-Every input post_id appears exactly once in results; posts with nothing relevant get items: []."""
+themes (per post, separate from items): 0-3 specific crypto narratives, projects or trends the post discusses, even in passing and even with no direction. Examples: "Elysium (Kinetiq L2)", "Privacy coins", "Pump.fun buybacks", "Hyperliquid ecosystem", "AI agents". Not generic market talk ("crypto market", "BTC price", "bear market", "altcoins"). Short names in Title Case. When the user message lists known themes, reuse the exact known name whenever the post is about the same thing.
+
+Every input post_id appears exactly once in results; posts with nothing relevant get items: [] and themes: []."""
 
 SCHEMA = {
     "type": "object",
@@ -49,6 +51,7 @@ SCHEMA = {
         "type": "object",
         "properties": {
             "post_id": {"type": "string"},
+            "themes": {"type": "array", "items": {"type": "string"}},
             "items": {"type": "array", "items": {
                 "type": "object",
                 "properties": {
@@ -62,7 +65,7 @@ SCHEMA = {
                 "required": ["kind", "asset", "direction", "weight", "summary", "snapshot"],
                 "additionalProperties": False}},
         },
-        "required": ["post_id", "items"],
+        "required": ["post_id", "themes", "items"],
         "additionalProperties": False}}},
     "required": ["results"],
     "additionalProperties": False,
@@ -83,12 +86,15 @@ def db(con=None):
         create table if not exists calls(post_id text, handle text, created_at text, kind text,
             asset text, direction text, weight text, summary text, snapshot integer default 0);
         create table if not exists extracted(post_id text primary key);
+        create table if not exists themes(post_id text, handle text, created_at text, theme text);
         create table if not exists usage(at text, item text, units integer, usd real);""")
     return con
 
 
-def run(client, posts):
+def run(client, posts, known=()):
     lines = [f"[post_id={p[0]} @{p[1]} {p[2]} {p[4]} conversation={p[5]}]\n{p[3]}" for p in posts]
+    if known:  # in the user turn, not the system prompt, so the system prompt stays cacheable
+        lines.insert(0, "Known themes: " + "; ".join(known))
     resp = client.beta.messages.create(
         model=MODEL, max_tokens=16000,
         betas=["server-side-fallback-2026-07-01"], fallbacks="default",
@@ -107,7 +113,10 @@ def process(con, client):
     meta = {p[0]: p for p in todo}
     for i in range(0, len(todo), BATCH):
         chunk = todo[i:i + BATCH]
-        results, usage = run(client, chunk)
+        # recent theme names, most used first, so the same narrative keeps one name across posts and runs
+        known = [t for (t,) in con.execute("""select theme from themes where created_at >= date('now', '-14 days')
+            group by theme order by count(*) desc limit 80""")]
+        results, usage = run(client, chunk, known)
         tokens = usage.input_tokens + usage.output_tokens
         fetch.log_usage(con, "claude_tokens", tokens, usage.input_tokens * IN_USD + usage.output_tokens * OUT_USD)
         for r in results:
@@ -119,6 +128,8 @@ def process(con, client):
                     summary, snapshot) values(?,?,?,?,?,?,?,?,?)""", (
                     p[0], p[1], p[2], it["kind"], it["asset"].upper().lstrip("$"),
                     it["direction"], it["weight"], it["summary"], int(it["snapshot"])))
+            for theme in dict.fromkeys(t.strip() for t in r.get("themes", []) if t.strip()):
+                con.execute("insert into themes values(?,?,?,?)", (p[0], p[1], p[2], theme))
             # only posts the model returned are marked done; dropped ones retry next run
             con.execute("insert or ignore into extracted values(?)", (p[0],))
         con.commit()

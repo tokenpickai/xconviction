@@ -35,6 +35,7 @@ def db(path=ROOT / "xconviction.db"):
     con.execute("create table if not exists accounts(handle text primary key, name text, avatar blob)")
     # spend log; prices from docs.x.com/x-api/getting-started/pricing and Anthropic's price list (Nov 2026)
     con.execute("create table if not exists usage(at text, item text, units integer, usd real)")
+    con.execute("create table if not exists themes(post_id text, handle text, created_at text, theme text)")
     cols = [c[1] for c in con.execute("pragma table_info(calls)")]
     if cols and "snapshot" not in cols:  # databases from before on-chain items were tagged
         con.execute("alter table calls add column snapshot integer default 0")
