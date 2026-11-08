@@ -53,7 +53,7 @@ def move(r):
         return ""
     pct = 100 * (r["p1"] / r["p0"] - 1)
     return (f'<span class="px">{usd(r["p0"])} → {usd(r["p1"])} '
-            f'<b class="dir {"bullish" if pct >= 0 else "bearish"}">{pct:+.1f}%</b></span> · ')
+            f'<b class="dir {"bullish" if pct >= 0 else "bearish"}">{pct:+.1f}%</b> since</span> ')
 
 
 def e(s):
@@ -145,7 +145,8 @@ def picks_section(rows, now, votes):
         reasons = ["proven trader"] if r.get("proven") else []
         reasons += [f"{agree} accounts agree"] if agree > 1 else []
         if r["p0"] and r["p1"]:
-            reasons.append("price hasn't moved yet" if abs(moved) < 1 else f"{moved:+.1f}% in its direction so far")
+            reasons.append("price hasn't moved yet" if abs(moved) < 1 else
+                           f"{moved:.1f}% in its direction so far" if moved > 0 else f"price moved {-moved:.1f}% against it")
         why = "".join(f'<span class="why">{x}</span> · ' for x in reasons)
         out.append(item(r, why=why))
     body = "".join(out) or '<li class="meta">No strong calls in the last 24 hours.</li>'
@@ -175,12 +176,14 @@ def emerging_section(con, now):
     if not themes:
         return ""
     names = dict(con.execute("select handle, name from accounts"))
+    pics = {h for (h,) in con.execute("select handle from accounts where avatar is not null")}
     blocks = []
     for t in themes:
         posts = con.execute("""select p.id, p.handle, p.created_at, p.text from themes t join posts p on p.id = t.post_id
             where t.theme = ? order by p.created_at desc limit 5""", (t["theme"],)).fetchall()
         lis = "".join(
-            f'<li><b>{e(speaker(dict(name=names.get(h, ""), handle=h)))}:</b> {e(text[:180])}{"…" if len(text) > 180 else ""}'
+            f'<li>{f"<img class=av src=avatars/{e(h)}.jpg alt>" if h in pics else ""}'
+            f'<b>{e(speaker(dict(name=names.get(h, ""), handle=h)))}:</b> {e(text[:180])}{"…" if len(text) > 180 else ""}'
             f'<div class="meta">{local_time(at)} · <a href="https://x.com/{e(h)}/status/{pid}">post</a></div></li>'
             for pid, h, at, text in posts)
         tag = '<span class="wt new">new</span>' if t["new"] else ""
@@ -228,7 +231,7 @@ def page(rows, spend_html="", emerging_html=""):
 <title>Xconviction</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Archivo:wght@800&display=swap');
-:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:var(--fg)}}
+:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:#c08a3e}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;max-width:600px;margin:0 auto;padding:16px}}
