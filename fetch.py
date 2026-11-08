@@ -114,6 +114,10 @@ if __name__ == "__main__":
     args = ap.parse_args()
     con, tok = db(), token()
     handles = [h.lstrip("@") for h in (ROOT / "accounts.txt").read_text().split()]
-    names(con, handles, tok)
+    # names and pictures barely change: refresh once a day (12:xx UTC) or when an account is new, not every run
+    known = {h for (h,) in con.execute("select handle from accounts where avatar is not null")}
+    missing = [h for h in handles if h not in known]
+    if missing or datetime.now(timezone.utc).hour == 12:
+        names(con, handles if not missing else missing, tok)
     for h in handles:
         fetch(con, h, tok, args.days)
