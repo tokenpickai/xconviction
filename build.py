@@ -143,7 +143,7 @@ def picks_section(rows, now, votes):
     return f'<div class="label">Act now</div><ul class="picks">{"".join(out)}</ul>' if out else ""
 
 
-def emerging(con, now, days=3, n=8):
+def emerging(con, now, days=3, n=10):
     """Themes getting talked about lately: at least 2 posts or 2 accounts in the last `days`,
     ranked by accounts, posts and newness. new = first ever seen in the last 48h."""
     cut = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -155,8 +155,9 @@ def emerging(con, now, days=3, n=8):
         if posts >= 2 or accounts >= 2:
             out.append(dict(theme=theme, posts=posts, accounts=accounts, latest=latest, new=first[theme] >= fresh))
     out.sort(key=lambda t: t["latest"], reverse=True)  # newest first among ties
-    # ponytail: hand-set score; a second account counts as 3 posts, brand-new gets a bump. Tune with more history.
-    out.sort(key=lambda t: -(3 * t["accounts"] + t["posts"] + 3 * t["new"]))
+    # ponytail: hand-set score; breadth beats volume (posts capped at 5 so one chatty account can't top it),
+    # brand-new gets a bump. Tune with more history.
+    out.sort(key=lambda t: -(3 * t["accounts"] + min(t["posts"], 5) + 3 * t["new"]))
     return out[:n]
 
 
