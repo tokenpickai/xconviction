@@ -34,6 +34,9 @@ assert [r["asset"] for r, _, _ in got] == ["NEW", "OLD"], got
 # agreement lifts a medium call above a lone high one of the same age
 got = picks([c("A", "high", "2026-11-08T11:00:00Z"), c("B", "medium", "2026-11-08T11:00:00Z")], now, {"B": (3, 0)})
 assert got[0][0]["asset"] == "B"
+# a position snapshot ranks below a fresh move of the same weight
+got = picks([dict(c("SNAP", "high", "2026-11-08T11:00:00Z"), snapshot=1), c("MOVE", "high", "2026-11-08T11:00:00Z")], now, {})
+assert [r["asset"] for r, _, _ in got] == ["MOVE", "SNAP"]
 # spend: user lookups count once per UTC day, everything else adds up
 con = sqlite3.connect(":memory:")
 con.execute("create table usage(at text, item text, units integer, usd real)")

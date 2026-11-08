@@ -36,6 +36,7 @@ Two kinds of item:
    - weight by USD size: high >= $50M, medium >= $5M, low below $5M.
    - A post covering several assets gives one item per asset.
    - Skip moves by hackers, exploiters and scammers (laundering or dumping stolen funds): no item.
+   - snapshot: true when the post describes a position or holding that already exists ("holds", "is sitting on", "still has", "unrealized profit", "current position") without a new action. false when it reports an action that just happened (bought, sold, deposited, withdrew, opened, closed, added to, got liquidated, flows today). For "call" items, always false.
 
 asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole.
 summary: one plain sentence a reader can act on, with numbers and the actor when given (e.g. "BlackRock moved 7,244 BTC ($558M) out of its ETF", "Strongly bullish SOL; says the single-chain thesis still holds").
@@ -56,8 +57,9 @@ SCHEMA = {
                     "direction": {"type": "string", "enum": ["bullish", "bearish"]},
                     "weight": {"type": "string", "enum": ["high", "medium", "low"]},
                     "summary": {"type": "string"},
+                    "snapshot": {"type": "boolean"},
                 },
-                "required": ["kind", "asset", "direction", "weight", "summary"],
+                "required": ["kind", "asset", "direction", "weight", "summary", "snapshot"],
                 "additionalProperties": False}},
         },
         "required": ["post_id", "items"],
@@ -79,7 +81,7 @@ def db(con=None):
     con = con or sqlite3.connect(ROOT / "xconviction.db")
     con.executescript("""
         create table if not exists calls(post_id text, handle text, created_at text, kind text,
-            asset text, direction text, weight text, summary text);
+            asset text, direction text, weight text, summary text, snapshot integer default 0);
         create table if not exists extracted(post_id text primary key);
         create table if not exists usage(at text, item text, units integer, usd real);""")
     return con
@@ -113,9 +115,10 @@ def process(con, client):
             if not p:
                 continue
             for it in r["items"]:
-                con.execute("insert into calls values(?,?,?,?,?,?,?,?)", (
+                con.execute("""insert into calls(post_id, handle, created_at, kind, asset, direction, weight,
+                    summary, snapshot) values(?,?,?,?,?,?,?,?,?)""", (
                     p[0], p[1], p[2], it["kind"], it["asset"].upper().lstrip("$"),
-                    it["direction"], it["weight"], it["summary"]))
+                    it["direction"], it["weight"], it["summary"], int(it["snapshot"])))
             # only posts the model returned are marked done; dropped ones retry next run
             con.execute("insert or ignore into extracted values(?)", (p[0],))
         con.commit()

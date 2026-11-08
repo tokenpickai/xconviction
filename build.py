@@ -17,7 +17,7 @@ WINDOW_DAYS = 7  # consensus only looks this far back, for every account, old or
 
 def load():
     con = fetch.db()
-    cols = "post_id handle created_at kind asset direction weight summary".split()
+    cols = "post_id handle created_at kind asset direction weight summary snapshot".split()
     rows = [dict(zip(cols, r)) for r in con.execute(f"select {','.join(cols)} from calls order by created_at")]
     # a flip = an account's firm call on an asset pointing the other way from its previous firm call;
     # low-weight remarks can't flip
@@ -74,9 +74,10 @@ def item(r, show_asset=True, why=""):
     arrow = "▲" if r["direction"] == "bullish" else "▼"
     flip = '<span class="flip">flipped</span>' if r.get("flip") else ""
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
+    snap = ' <span class="wt snap">position</span>' if r.get("snapshot") else ""
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
     return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
-            f'<span class="wt">{r["weight"]}</span>{flip} {pic}<b>{e(speaker(r))}:</b> {e(r["summary"])}'
+            f'<span class="wt">{r["weight"]}</span>{flip}{snap} {pic}<b>{e(speaker(r))}:</b> {e(r["summary"])}'
             f'<div class="meta">{why}{local_time(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
@@ -123,7 +124,8 @@ def picks(rows, now, votes, n=3):
         if r["p0"] and r["p1"]:
             moved = 100 * (r["p1"] / r["p0"] - 1) * (1 if r["direction"] == "bullish" else -1)
         age_h = (now - datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))).total_seconds() / 3600
-        score = W[r["weight"]] * (1 + 0.5 * (agree - 1)) * max(0, 1 - max(0, moved) / 10) * max(0, 1 - age_h / 48)
+        # a standing position is context, not news: rank it well below fresh moves
+        score = W[r["weight"]] * (0.25 if r.get("snapshot") else 1) * (1 + 0.5 * (agree - 1)) * max(0, 1 - max(0, moved) / 10) * max(0, 1 - age_h / 48)
         key = (r["asset"], r["direction"])
         if score > 0 and score > best.get(key, (0,))[0]:
             best[key] = (score, r, agree, moved)
