@@ -224,15 +224,27 @@ def assets_section(rows):
             f'<button class="nav next" aria-label="Scroll right">›</button></div>')
 
 
+PAGE = 30
+
+
+def paged(rows):
+    """First PAGE items visible, the rest revealed PAGE at a time by the Show more button."""
+    lis = "".join(item(r).replace('<li class="', '<li class="later ' if i >= PAGE else '<li class="', 1) for i, r in enumerate(rows))
+    more = '<button class="more">Show more</button>' if len(rows) > PAGE else ""
+    return f'<ul class="paged">{lis}</ul>{more}'
+
+
 def page(rows, spend_html="", emerging_html=""):
-    calls = [r for r in reversed(rows) if r["kind"] == "call"]
-    chain = [r for r in reversed(rows) if r["kind"] == "onchain"]
+    # the feed covers the same 7 days as the consensus; older items stay in the database
+    week = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+    calls = [r for r in reversed(rows) if r["kind"] == "call" and r["created_at"] >= week]
+    chain = [r for r in reversed(rows) if r["kind"] == "onchain" and r["created_at"] >= week]
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Xconviction</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Archivo:wght@800&display=swap');
-:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#f7931a;--md:#c08a3e}}
-@media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c}}}}
+:root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#b8860b;--md:#c08a3e}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c;--hi:#ffd400}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;max-width:600px;margin:0 auto;padding:16px}}
 .tabs{{display:flex;margin-top:16px}}
@@ -255,6 +267,9 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .emerging details{{border-bottom:1px solid var(--line);padding:10px 0}} .emerging summary{{cursor:pointer}}
 .emerging summary .meta{{display:inline;margin-left:8px}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
 .emerging .pitch{{font-size:14px;margin-top:2px}} .emerging ul{{margin-top:4px}} .emerging li{{padding:8px 0 8px 12px;border-bottom:0;font-size:14px}}
+li.later{{display:none}} .filtering li.later{{display:list-item}} .filtering .more{{display:none}}
+.more{{display:block;width:100%;padding:14px 0;background:none;border:0;border-bottom:1px solid var(--line);color:var(--fg);font:500 15px/20px inherit;font-family:inherit;cursor:pointer}}
+.more:hover{{background:var(--tile)}}
 footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .card{{cursor:pointer}} .card.on{{border-color:var(--fg)}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
@@ -270,8 +285,8 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 {picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}
 {emerging_html}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
-<ul id="calls" role="tabpanel">{"".join(item(r) for r in calls)}</ul>
-<ul id="onchain" role="tabpanel">{"".join(item(r) for r in chain)}</ul>
+<div id="calls" role="tabpanel">{paged(calls)}</div>
+<div id="onchain" role="tabpanel">{paged(chain)}</div>
 {spend_html}
 <script>
 const tabs = document.querySelectorAll('.tabs button');
@@ -285,12 +300,18 @@ let saved; try {{ saved = localStorage.tab; }} catch (_) {{}}
 show(saved === 'onchain' ? 'onchain' : 'calls');
 const u = document.querySelector('.updated'), mins = Math.round((Date.now() - new Date(u.dataset.t)) / 60000);
 u.textContent = 'updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
+document.querySelectorAll('.more').forEach(b => b.onclick = () => {{
+  const later = b.previousElementSibling.querySelectorAll('li.later');
+  [...later].slice(0, {PAGE}).forEach(li => li.classList.remove('later'));
+  if (later.length <= {PAGE}) b.remove();
+}});
 let only = null;
 document.querySelectorAll('.card').forEach(card => card.onclick = card.onkeydown = ev => {{
   if (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ') return;
   only = only === card.dataset.asset ? null : card.dataset.asset;
   document.querySelectorAll('.card').forEach(k => k.classList.toggle('on', k.dataset.asset === only));
   document.querySelectorAll('li[data-asset]').forEach(li => li.hidden = only !== null && li.dataset.asset !== only);
+  document.body.classList.toggle('filtering', only !== null);  // a filtered view shows every match, unpaged
 }});
 const c = document.querySelector('.cards'), prev = document.querySelector('.prev'), next = document.querySelector('.next');
 const sync = () => {{ prev.hidden = c.scrollLeft <= 0; next.hidden = c.scrollLeft + c.clientWidth >= c.scrollWidth - 1; }};
