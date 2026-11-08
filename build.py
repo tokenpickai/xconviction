@@ -145,7 +145,7 @@ def picks_section(rows, now, votes):
 
 def emerging(con, now, days=3, n=8):
     """Themes getting talked about lately: at least 2 posts or 2 accounts in the last `days`,
-    new ones first, then most accounts, then most posts. new = first ever seen in the last 48h."""
+    ranked by accounts, posts and newness. new = first ever seen in the last 48h."""
     cut = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
     fresh = (now - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%S")
     first = dict(con.execute("select theme, min(created_at) from themes group by theme"))
@@ -155,7 +155,8 @@ def emerging(con, now, days=3, n=8):
         if posts >= 2 or accounts >= 2:
             out.append(dict(theme=theme, posts=posts, accounts=accounts, latest=latest, new=first[theme] >= fresh))
     out.sort(key=lambda t: t["latest"], reverse=True)  # newest first among ties
-    out.sort(key=lambda t: (not t["new"], -t["accounts"], -t["posts"]))  # brand-new themes are the point, so first
+    # ponytail: hand-set score; a second account counts as 3 posts, brand-new gets a bump. Tune with more history.
+    out.sort(key=lambda t: -(3 * t["accounts"] + t["posts"] + 3 * t["new"]))
     return out[:n]
 
 
