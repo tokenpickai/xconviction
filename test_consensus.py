@@ -64,4 +64,8 @@ got = consensus([v("ZEC", "a", "bullish"), v("ZEC", "b", "bearish"), v("ZEC", "b
 assert [t[0] for t in got] == ["ZEC", "WLD"], got
 # on-chain items never headline, and a lone medium call doesn't qualify
 assert picks([c("ETH", "high", "2026-11-08T11:00:00Z", kind="onchain"), c("SOL", "medium", "2026-11-08T11:00:00Z")], now, {}) == []
+# a fresh move by a proven trader can headline; the same trader's standing position can't
+got = picks([dict(c("ETH", "medium", "2026-11-08T11:00:00Z", kind="onchain"), proven=1),
+             dict(c("BTC", "high", "2026-11-08T11:00:00Z", kind="onchain"), proven=1, snapshot=1)], now, {})
+assert [r["asset"] for r, _, _ in got] == ["ETH"], got
 print("ok")

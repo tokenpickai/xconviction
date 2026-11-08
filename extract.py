@@ -37,6 +37,7 @@ Two kinds of item:
    - A post covering several assets gives one item per asset.
    - Skip moves by hackers, exploiters and scammers (laundering or dumping stolen funds): no item.
    - snapshot: true when the post describes a position or holding that already exists ("holds", "is sitting on", "still has", "unrealized profit", "current position") without a new action. false when it reports an action that just happened (bought, sold, deposited, withdrew, opened, closed, added to, got liquidated, flows today). For "call" items, always false.
+   - proven: true when the post credits the actor with a strong track record: a high win rate ("88% win rate", "10/10 wins"), large realized profits, called "smart money"/"top trader", or a well-known fund. Not unknown whales, not traders described by losses. For "call" items, always false.
 
 asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole.
 summary: one plain sentence a reader can act on, with numbers and the actor when given (e.g. "BlackRock moved 7,244 BTC ($558M) out of its ETF", "Strongly bullish SOL; says the single-chain thesis still holds").
@@ -69,8 +70,9 @@ SCHEMA = {
                     "weight": {"type": "string", "enum": ["high", "medium", "low"]},
                     "summary": {"type": "string"},
                     "snapshot": {"type": "boolean"},
+                    "proven": {"type": "boolean"},
                 },
-                "required": ["kind", "asset", "direction", "weight", "summary", "snapshot"],
+                "required": ["kind", "asset", "direction", "weight", "summary", "snapshot", "proven"],
                 "additionalProperties": False}},
         },
         "required": ["post_id", "themes", "items"],
@@ -92,7 +94,8 @@ def db(con=None):
     con = con or sqlite3.connect(ROOT / "xconviction.db")
     con.executescript("""
         create table if not exists calls(post_id text, handle text, created_at text, kind text,
-            asset text, direction text, weight text, summary text, snapshot integer default 0);
+            asset text, direction text, weight text, summary text, snapshot integer default 0,
+            proven integer default 0);
         create table if not exists extracted(post_id text primary key);
         create table if not exists themes(post_id text, handle text, created_at text, theme text, pitch text);
         create table if not exists usage(at text, item text, units integer, usd real);""")
@@ -133,9 +136,9 @@ def process(con, client):
                 continue
             for it in r["items"]:
                 con.execute("""insert into calls(post_id, handle, created_at, kind, asset, direction, weight,
-                    summary, snapshot) values(?,?,?,?,?,?,?,?,?)""", (
+                    summary, snapshot, proven) values(?,?,?,?,?,?,?,?,?,?)""", (
                     p[0], p[1], p[2], it["kind"], it["asset"].upper().lstrip("$"),
-                    it["direction"], it["weight"], it["summary"], int(it["snapshot"])))
+                    it["direction"], it["weight"], it["summary"], int(it["snapshot"]), int(it["proven"])))
             for t in {t["name"].strip(): t for t in r.get("themes", []) if t["name"].strip()}.values():
                 con.execute("insert into themes(post_id, handle, created_at, theme, pitch) values(?,?,?,?,?)",
                             (p[0], p[1], p[2], t["name"].strip(), t["pitch"]))

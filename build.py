@@ -17,7 +17,7 @@ WINDOW_DAYS = 7  # consensus only looks this far back, for every account, old or
 
 def load():
     con = fetch.db()
-    cols = "post_id handle created_at kind asset direction weight summary snapshot".split()
+    cols = "post_id handle created_at kind asset direction weight summary snapshot proven".split()
     rows = [dict(zip(cols, r)) for r in con.execute(f"select {','.join(cols)} from calls order by created_at")]
     # a flip = an account's firm call on an asset pointing the other way from its previous firm call;
     # low-weight remarks can't flip
@@ -118,13 +118,14 @@ def picks(rows, now, votes, n=3):
     cutoff = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
     best = {}
     for r in rows:
-        # headline picks are calls from the accounts you follow; on-chain data only counts as agreement.
-        # a high-conviction call qualifies alone, a medium one only when another account agrees
-        if r["created_at"] < cutoff or r["kind"] != "call" or r["weight"] == "low":
+        # headline picks: calls from the accounts you follow, or a fresh move by a trader with a proven record.
+        # other on-chain data only counts as agreement. high qualifies alone, medium needs a second account.
+        smart = r["kind"] == "onchain" and r.get("proven") and not r.get("snapshot")
+        if r["created_at"] < cutoff or r["weight"] == "low" or not (r["kind"] == "call" or smart):
             continue
         up, down = votes.get(r["asset"], (0, 0))
         agree = max(1, up if r["direction"] == "bullish" else down)
-        if r["weight"] == "medium" and agree < 2:
+        if r["weight"] == "medium" and agree < 2 and not smart:
             continue
         moved = 0.0  # % the price already moved in the call's direction
         if r["p0"] and r["p1"]:
@@ -141,7 +142,8 @@ def picks(rows, now, votes, n=3):
 def picks_section(rows, now, votes):
     out = []
     for r, agree, moved in picks(rows, now, votes):
-        reasons = [f"{agree} accounts agree"] if agree > 1 else []
+        reasons = ["proven trader"] if r.get("proven") else []
+        reasons += [f"{agree} accounts agree"] if agree > 1 else []
         if r["p0"] and r["p1"]:
             reasons.append("price hasn't moved yet" if abs(moved) < 1 else f"{moved:+.1f}% in its direction so far")
         why = "".join(f'<span class="why">{x}</span> · ' for x in reasons)
