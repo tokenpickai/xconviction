@@ -33,13 +33,23 @@ def db(path=ROOT / "xconviction.db"):
         id text primary key, handle text, created_at text, text text,
         kind text, conversation_id text, metrics text, raw text)""")
     con.execute("create table if not exists accounts(handle text primary key, name text, avatar blob)")
+    # spend log; prices from docs.x.com/x-api/getting-started/pricing and Anthropic's price list (Nov 2026)
+    con.execute("create table if not exists usage(at text, item text, units integer, usd real)")
     if "avatar" not in [c[1] for c in con.execute("pragma table_info(accounts)")]:
         con.execute("alter table accounts add column avatar blob")
     return con
 
 
+X_POST_USD, X_USER_USD = 0.005, 0.010  # per resource read; X bills each resource at most once per UTC day
+
+
+def log_usage(con, item, units, usd):
+    con.execute("insert into usage values(strftime('%Y-%m-%dT%H:%M:%SZ','now'),?,?,?)", (item, units, usd))
+
+
 def names(con, handles, tok):
     users = get("/users/by", {"usernames": ",".join(handles), "user.fields": "profile_image_url"}, tok).get("data", [])
+    log_usage(con, "x_users", len(users), len(users) * X_USER_USD)
     for u in users:
         con.execute("""insert into accounts(handle, name) values(?,?)
             on conflict(handle) do update set name=excluded.name""", (u["username"], u["name"]))
@@ -86,6 +96,7 @@ def fetch(con, handle, tok, days):
             break
         params["next_token"] = nxt
         time.sleep(1)
+    log_usage(con, "x_posts", n, n * X_POST_USD)
     con.commit()
     print(f"@{handle}: {n} posts")
 

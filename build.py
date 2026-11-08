@@ -141,6 +141,24 @@ def picks_section(rows, now, votes):
     return f'<div class="label">Act now</div><ul class="picks">{"".join(out)}</ul>' if out else ""
 
 
+def spend(con, now):
+    """Estimated $ over the last n days. User lookups are billed once per UTC day, so take each day's max, not the sum."""
+    def since(days):
+        t = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rest = con.execute("select coalesce(sum(usd),0) from usage where at>=? and item!='x_users'", (t,)).fetchone()[0]
+        users = con.execute("""select coalesce(sum(m),0) from (select max(usd) m from usage
+            where at>=? and item='x_users' group by substr(at,1,10))""", (t,)).fetchone()[0]
+        return rest + users
+    first = con.execute("select min(at) from usage").fetchone()[0]
+    if not first:
+        return ""
+    tracked = max(1 / 24, (now - datetime.fromisoformat(first.replace("Z", "+00:00"))).total_seconds() / 86400)
+    week = since(7)
+    month = week / min(7, tracked) * 30
+    return (f'<footer>Est. spend: ${since(1):.2f} last 24h · ${week:.2f} last 7 days · ~${month:.0f}/month pace'
+            f'{" (early estimate)" if tracked < 2 else ""}</footer>')
+
+
 def assets_section(rows):
     cutoff = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     cards = []
@@ -152,7 +170,7 @@ def assets_section(rows):
             f'<button class="nav next" aria-label="Scroll right">›</button></div>')
 
 
-def page(rows):
+def page(rows, spend_html=""):
     calls = [r for r in reversed(rows) if r["kind"] == "call"]
     chain = [r for r in reversed(rows) if r["kind"] == "onchain"]
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -180,6 +198,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .strip{{position:relative}}
 .cards{{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}} .cards::-webkit-scrollbar{{display:none}}
 .card{{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--tile);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:14px;white-space:nowrap}}
+footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .card{{cursor:pointer}} .card.on{{border-color:var(--fg)}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .picks{{border-bottom:2px solid var(--line)}} .picks li:last-child{{border-bottom:0}} .why{{color:var(--fg);font-weight:500}}
@@ -195,6 +214,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
 <ul id="calls" role="tabpanel">{"".join(item(r) for r in calls)}</ul>
 <ul id="onchain" role="tabpanel">{"".join(item(r) for r in chain)}</ul>
+{spend_html}
 <script>
 const tabs = document.querySelectorAll('.tabs button');
 const show = name => tabs.forEach(t => {{
@@ -227,5 +247,5 @@ c.addEventListener('scroll', sync); addEventListener('resize', sync); sync();
 if __name__ == "__main__":
     rows = load()
     (ROOT / "site").mkdir(exist_ok=True)
-    (ROOT / "site" / "index.html").write_text(page(rows))
+    (ROOT / "site" / "index.html").write_text(page(rows, spend(fetch.db(), datetime.now(timezone.utc))))
     print(f"site/index.html: {len(rows)} items")

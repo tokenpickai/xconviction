@@ -7,8 +7,11 @@ from pathlib import Path
 
 import anthropic
 
+import fetch
+
 ROOT = Path(__file__).parent
 MODEL = "claude-opus-5-5"
+IN_USD, OUT_USD = 4 / 1e6, 20 / 1e6  # per token for this model; thinking is billed as output
 BATCH = 40
 
 SYSTEM = """You read posts by crypto accounts the user trusts and pull out what matters for crypto investing. Report only what the author says. Never add your own view.
@@ -77,7 +80,8 @@ def db(con=None):
     con.executescript("""
         create table if not exists calls(post_id text, handle text, created_at text, kind text,
             asset text, direction text, weight text, summary text);
-        create table if not exists extracted(post_id text primary key);""")
+        create table if not exists extracted(post_id text primary key);
+        create table if not exists usage(at text, item text, units integer, usd real);""")
     return con
 
 
@@ -92,7 +96,7 @@ def run(client, posts):
     )
     if resp.stop_reason != "end_turn":
         raise RuntimeError(f"stopped: {resp.stop_reason}")
-    return json.loads(next(b.text for b in resp.content if b.type == "text"))["results"]
+    return json.loads(next(b.text for b in resp.content if b.type == "text"))["results"], resp.usage
 
 
 def process(con, client):
@@ -101,7 +105,10 @@ def process(con, client):
     meta = {p[0]: p for p in todo}
     for i in range(0, len(todo), BATCH):
         chunk = todo[i:i + BATCH]
-        for r in run(client, chunk):
+        results, usage = run(client, chunk)
+        tokens = usage.input_tokens + usage.output_tokens
+        fetch.log_usage(con, "claude_tokens", tokens, usage.input_tokens * IN_USD + usage.output_tokens * OUT_USD)
+        for r in results:
             p = meta.get(r["post_id"])
             if not p:
                 continue

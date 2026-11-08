@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
-from build import consensus, local_time, picks, speaker
+import sqlite3
+
+from build import consensus, local_time, picks, speaker, spend
 
 
 def r(handle, kind, direction, weight="high", t="2026-11-06", flip=False):
@@ -32,4 +34,11 @@ assert [r["asset"] for r, _, _ in got] == ["NEW", "OLD"], got
 # agreement lifts a medium call above a lone high one of the same age
 got = picks([c("A", "high", "2026-11-08T11:00:00Z"), c("B", "medium", "2026-11-08T11:00:00Z")], now, {"B": (3, 0)})
 assert got[0][0]["asset"] == "B"
+# spend: user lookups count once per UTC day, everything else adds up
+con = sqlite3.connect(":memory:")
+con.execute("create table usage(at text, item text, units integer, usd real)")
+con.executemany("insert into usage values(?,?,?,?)", [
+    ("2026-11-08T01:00:00Z", "x_users", 7, 0.07), ("2026-11-08T02:00:00Z", "x_users", 7, 0.07),
+    ("2026-11-08T02:00:00Z", "x_posts", 10, 0.05), ("2026-11-08T02:00:00Z", "claude_tokens", 1000, 0.03)])
+assert "$0.15 last 24h" in spend(con, now), spend(con, now)
 print("ok")
