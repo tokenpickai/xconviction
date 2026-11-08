@@ -99,7 +99,8 @@ def consensus(rows, cutoff):
             calls = [r for r in calls if r["weight"] != "low"] or calls
             if calls:
                 net = 1 if calls[-1]["direction"] == "bullish" else -1
-                flip = flip or calls[-1].get("flip", False)
+                # flagged if the account changed sides at any point in the window, not only on its very latest call
+                flip = flip or any(r.get("flip", False) for r in calls)
             else:
                 net = sum(W[r["weight"]] * (1 if r["direction"] == "bullish" else -1) for r in rs)
             up += net > 0

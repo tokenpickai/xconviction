@@ -56,4 +56,6 @@ assert [(t["theme"], t["new"]) for t in got] == [("Elysium", True), ("Once", Tru
 con.executemany("insert into themes values(?,?,?,?)", [("7", "a", "2026-11-08T08:00:00Z", "Solo"), ("8", "a", "2026-11-08T08:30:00Z", "Solo"),
     ("9", "b", "2026-11-07T08:00:00Z", "Privacy"), ("10", "b", "2026-10-01T08:00:00Z", "Privacy")])
 assert "Solo" in [t["theme"] for t in emerging(con, now)]
+# a flip stays flagged after the account repeats its new view
+assert consensus([r("a", "call", "bullish"), r("a", "call", "bearish", flip=True), r("a", "call", "bearish")], "2026-11-01") == [("BTC", 0, 1, True)]
 print("ok")
