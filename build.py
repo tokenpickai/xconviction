@@ -152,11 +152,11 @@ def spend(con, now):
     first = con.execute("select min(at) from usage").fetchone()[0]
     if not first:
         return ""
-    tracked = max(1 / 24, (now - datetime.fromisoformat(first.replace("Z", "+00:00"))).total_seconds() / 86400)
+    tracked = (now - datetime.fromisoformat(first.replace("Z", "+00:00"))).total_seconds() / 86400
     week = since(7)
-    month = week / min(7, tracked) * 30
-    return (f'<footer>Est. spend: ${since(1):.2f} last 24h · ${week:.2f} last 7 days · ~${month:.0f}/month pace'
-            f'{" (early estimate)" if tracked < 2 else ""}</footer>')
+    # a monthly pace from a few hours is wildly off (one day's user-lookup charge lands in the first run), so wait a day
+    pace = f" · ~${week / min(7, tracked) * 30:.0f}/month pace" if tracked >= 1 else " · monthly pace after 24h"
+    return f'<footer>Est. spend: ${since(1):.2f} last 24h · ${week:.2f} last 7 days{pace}</footer>'
 
 
 def assets_section(rows):
