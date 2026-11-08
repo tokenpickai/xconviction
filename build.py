@@ -112,16 +112,20 @@ def consensus(rows, cutoff):
 
 
 def picks(rows, now, votes, n=3):
-    """Act now: the strongest medium/high items of the last 24h that the price hasn't already run with.
+    """Act now: the strongest calls of the last 24h that the price hasn't already run with.
     votes = {asset: (up, down)} from consensus."""
     # ponytail: hand-set heuristic (weight x agreement x freshness x room left); tune once there's a week of data
     cutoff = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
     best = {}
     for r in rows:
-        if r["created_at"] < cutoff or r["weight"] == "low":
+        # headline picks are calls from the accounts you follow; on-chain data only counts as agreement.
+        # a high-conviction call qualifies alone, a medium one only when another account agrees
+        if r["created_at"] < cutoff or r["kind"] != "call" or r["weight"] == "low":
             continue
         up, down = votes.get(r["asset"], (0, 0))
         agree = max(1, up if r["direction"] == "bullish" else down)
+        if r["weight"] == "medium" and agree < 2:
+            continue
         moved = 0.0  # % the price already moved in the call's direction
         if r["p0"] and r["p1"]:
             moved = 100 * (r["p1"] / r["p0"] - 1) * (1 if r["direction"] == "bullish" else -1)
@@ -142,7 +146,8 @@ def picks_section(rows, now, votes):
             reasons.append("price hasn't moved yet" if abs(moved) < 1 else f"{moved:+.1f}% in its direction so far")
         why = "".join(f'<span class="why">{x}</span> · ' for x in reasons)
         out.append(item(r, why=why))
-    return f'<div class="label">Act now</div><ul class="picks">{"".join(out)}</ul>' if out else ""
+    body = "".join(out) or '<li class="meta">No strong calls in the last 24 hours.</li>'
+    return f'<div class="label">Act now</div><ul class="picks">{body}</ul>'
 
 
 def emerging(con, now, days=3, n=10):

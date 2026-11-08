@@ -26,8 +26,8 @@ assert speaker({"name": "Ansem 🐂🀄️", "handle": "blknoiz06"}) == "Ansem"
 assert speaker({"name": "🐧", "handle": "Pentosh1"}) == "Pentosh1"
 # picks: a fresh call beats a stale one, a call the price already ran with drops out, low weight never shows
 now = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
-def c(asset, w, t, p0=None, p1=None, d="bullish"):
-    return dict(asset=asset, weight=w, created_at=t, p0=p0, p1=p1, direction=d)
+def c(asset, w, t, p0=None, p1=None, d="bullish", kind="call"):
+    return dict(asset=asset, weight=w, created_at=t, p0=p0, p1=p1, direction=d, kind=kind)
 got = picks([c("OLD", "high", "2026-11-07T14:00:00Z"), c("NEW", "high", "2026-11-08T11:00:00Z"),
              c("RAN", "high", "2026-11-08T11:00:00Z", 100, 115), c("LOW", "low", "2026-11-08T11:00:00Z")], now, {})
 assert [r["asset"] for r, _, _ in got] == ["NEW", "OLD"], got
@@ -62,4 +62,6 @@ assert consensus([r("a", "call", "bullish"), r("a", "call", "bearish", flip=True
 def v(a, h, d): return dict(handle=h, asset=a, kind="call", direction=d, weight="high", created_at="2026-11-06", flip=False)
 got = consensus([v("ZEC", "a", "bullish"), v("ZEC", "b", "bearish"), v("ZEC", "b", "bearish"), v("WLD", "c", "bearish")], "2026-11-01")
 assert [t[0] for t in got] == ["ZEC", "WLD"], got
+# on-chain items never headline, and a lone medium call doesn't qualify
+assert picks([c("ETH", "high", "2026-11-08T11:00:00Z", kind="onchain"), c("SOL", "medium", "2026-11-08T11:00:00Z")], now, {}) == []
 print("ok")
