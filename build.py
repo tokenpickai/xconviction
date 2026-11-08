@@ -152,7 +152,7 @@ def emerging(con, now, days=3, n=10):
     out = []
     for theme, posts, accounts, latest in con.execute("""select theme, count(distinct post_id), count(distinct handle),
             max(created_at) from themes where created_at >= ? group by theme""", (cut,)):
-        if posts >= 2 or accounts >= 2:
+        if posts >= 2 or accounts >= 2 or first[theme] >= fresh:  # a brand-new pitch counts even once
             out.append(dict(theme=theme, posts=posts, accounts=accounts, latest=latest, new=first[theme] >= fresh))
     out.sort(key=lambda t: t["latest"], reverse=True)  # newest first among ties
     # ponytail: hand-set score; breadth beats volume (posts capped at 5 so one chatty account can't top it),
@@ -175,8 +175,11 @@ def emerging_section(con, now):
             f'<div class="meta">{local_time(at)} · <a href="https://x.com/{e(h)}/status/{pid}">post</a></div></li>'
             for pid, h, at, text in posts)
         tag = '<span class="wt new">new</span>' if t["new"] else ""
+        pitch = con.execute("""select pitch from themes where theme = ? and pitch is not null
+            order by created_at desc limit 1""", (t["theme"],)).fetchone()
         blocks.append(f'<details><summary><b>{e(t["theme"])}</b>{tag}<span class="meta">{t["posts"]} posts · '
-                      f'{t["accounts"]} account{"s" * (t["accounts"] != 1)}</span></summary><ul>{lis}</ul></details>')
+                      f'{t["accounts"]} account{"s" * (t["accounts"] != 1)}</span>'
+                      f'{f"<div class=pitch>{e(pitch[0])}</div>" if pitch else ""}</summary><ul>{lis}</ul></details>')
     return f'<div class="label">Emerging</div><div class="emerging">{"".join(blocks)}</div>'
 
 
@@ -239,7 +242,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .card{{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--tile);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:14px;white-space:nowrap}}
 .emerging details{{border-bottom:1px solid var(--line);padding:10px 0}} .emerging summary{{cursor:pointer}}
 .emerging summary .meta{{display:inline;margin-left:8px}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
-.emerging ul{{margin-top:4px}} .emerging li{{padding:8px 0 8px 12px;border-bottom:0;font-size:14px}}
+.emerging .pitch{{font-size:14px;margin-top:2px}} .emerging ul{{margin-top:4px}} .emerging li{{padding:8px 0 8px 12px;border-bottom:0;font-size:14px}}
 footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .card{{cursor:pointer}} .card.on{{border-color:var(--fg)}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}

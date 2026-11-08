@@ -41,7 +41,11 @@ Two kinds of item:
 asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole.
 summary: one plain sentence a reader can act on, with numbers and the actor when given (e.g. "BlackRock moved 7,244 BTC ($558M) out of its ETF", "Strongly bullish SOL; says the single-chain thesis still holds").
 
-themes (per post, separate from items): 0-3 specific crypto narratives, projects or trends the post discusses, even in passing and even with no direction. Examples: "Elysium (Kinetiq L2)", "Privacy coins", "Pump.fun buybacks", "Hyperliquid ecosystem", "AI agents". Not generic market talk ("crypto market", "BTC price", "bear market", "altcoins"), and not drama about people (accusations, feuds, insider allegations): only things someone could invest in. Short names in Title Case. When the user message lists known themes, reuse the exact known name whenever the post is about the same thing.
+themes (per post, separate from items): opportunities the author is pitching. Usually [] - most posts have none.
+   - Tag a theme ONLY when the author, in his own voice, highlights a specific narrative, project or trend as worth attention or likely to grow: "people are sleeping on X", "X is the next big thing", "I'm getting into X", "X narrative is heating up", a thesis for why X wins.
+   - NOT themes: questions ("how is crvUSD doing?"), news or incident reports, on-chain activity reports (a whale deposited into Hyperliquid is not a Hyperliquid theme), the venue or platform where something happened, hacks and exploits, drama about people, jokes, generic market talk ("BTC price", "bear market", "altcoins").
+   - Accounts that only report on-chain activity almost never pitch themes.
+   - Each theme: name (specific, Title Case, e.g. "Elysium (Kinetiq L2)", "ZEC Privacy Trade") and pitch (one sentence: the opportunity and why, in the author's terms). When the user message lists known themes, reuse the exact known name whenever the post is about the same thing.
 
 Every input post_id appears exactly once in results; posts with nothing relevant get items: [] and themes: []."""
 
@@ -51,7 +55,11 @@ SCHEMA = {
         "type": "object",
         "properties": {
             "post_id": {"type": "string"},
-            "themes": {"type": "array", "items": {"type": "string"}},
+            "themes": {"type": "array", "items": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "pitch": {"type": "string"}},
+                "required": ["name", "pitch"],
+                "additionalProperties": False}},
             "items": {"type": "array", "items": {
                 "type": "object",
                 "properties": {
@@ -86,7 +94,7 @@ def db(con=None):
         create table if not exists calls(post_id text, handle text, created_at text, kind text,
             asset text, direction text, weight text, summary text, snapshot integer default 0);
         create table if not exists extracted(post_id text primary key);
-        create table if not exists themes(post_id text, handle text, created_at text, theme text);
+        create table if not exists themes(post_id text, handle text, created_at text, theme text, pitch text);
         create table if not exists usage(at text, item text, units integer, usd real);""")
     return con
 
@@ -128,8 +136,9 @@ def process(con, client):
                     summary, snapshot) values(?,?,?,?,?,?,?,?,?)""", (
                     p[0], p[1], p[2], it["kind"], it["asset"].upper().lstrip("$"),
                     it["direction"], it["weight"], it["summary"], int(it["snapshot"])))
-            for theme in dict.fromkeys(t.strip() for t in r.get("themes", []) if t.strip()):
-                con.execute("insert into themes values(?,?,?,?)", (p[0], p[1], p[2], theme))
+            for t in {t["name"].strip(): t for t in r.get("themes", []) if t["name"].strip()}.values():
+                con.execute("insert into themes(post_id, handle, created_at, theme, pitch) values(?,?,?,?,?)",
+                            (p[0], p[1], p[2], t["name"].strip(), t["pitch"]))
             # only posts the model returned are marked done; dropped ones retry next run
             con.execute("insert or ignore into extracted values(?)", (p[0],))
         con.commit()
