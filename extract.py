@@ -41,7 +41,7 @@ Two kinds of item:
 asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole.
 summary: one plain sentence a reader can act on, with numbers and the actor when given (e.g. "BlackRock moved 7,244 BTC ($558M) out of its ETF", "Strongly bullish SOL; says the single-chain thesis still holds").
 
-themes (per post, separate from items): 0-3 specific crypto narratives, projects or trends the post discusses, even in passing and even with no direction. Examples: "Elysium (Kinetiq L2)", "Privacy coins", "Pump.fun buybacks", "Hyperliquid ecosystem", "AI agents". Not generic market talk ("crypto market", "BTC price", "bear market", "altcoins"). Short names in Title Case. When the user message lists known themes, reuse the exact known name whenever the post is about the same thing.
+themes (per post, separate from items): 0-3 specific crypto narratives, projects or trends the post discusses, even in passing and even with no direction. Examples: "Elysium (Kinetiq L2)", "Privacy coins", "Pump.fun buybacks", "Hyperliquid ecosystem", "AI agents". Not generic market talk ("crypto market", "BTC price", "bear market", "altcoins"), and not drama about people (accusations, feuds, insider allegations): only things someone could invest in. Short names in Title Case. When the user message lists known themes, reuse the exact known name whenever the post is about the same thing.
 
 Every input post_id appears exactly once in results; posts with nothing relevant get items: [] and themes: []."""
 

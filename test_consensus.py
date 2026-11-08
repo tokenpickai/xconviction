@@ -52,4 +52,8 @@ con.executemany("insert into themes values(?,?,?,?)", [
     ("5", "a", "2026-10-20T10:00:00Z", "Privacy"), ("6", "c", "2026-11-08T09:00:00Z", "Once")])
 got = emerging(con, now)
 assert [(t["theme"], t["new"]) for t in got] == [("Elysium", True), ("Privacy", False)], got
+# a new single-account theme still ranks above an older two-account one
+con.executemany("insert into themes values(?,?,?,?)", [("7", "a", "2026-11-08T08:00:00Z", "Solo"), ("8", "a", "2026-11-08T08:30:00Z", "Solo"),
+    ("9", "b", "2026-11-07T08:00:00Z", "Privacy"), ("10", "b", "2026-10-01T08:00:00Z", "Privacy")])
+assert [t["theme"] for t in emerging(con, now)][:2] == ["Elysium", "Solo"]
 print("ok")
