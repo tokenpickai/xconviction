@@ -1,4 +1,6 @@
-from build import consensus, local_time, speaker
+from datetime import datetime, timezone
+
+from build import consensus, local_time, picks, speaker
 
 
 def r(handle, kind, direction, weight="high", t="2026-11-06", flip=False):
@@ -20,4 +22,14 @@ assert local_time("2026-11-06T02:22:57.000Z") == "Nov 5, 7:22 PM"  # BC stays on
 assert local_time("2026-07-01T12:05:00.000Z") == "Jul 1, 5:05 AM"
 assert speaker({"name": "Ansem 🐂🀄️", "handle": "blknoiz06"}) == "Ansem"
 assert speaker({"name": "🐧", "handle": "Pentosh1"}) == "Pentosh1"
+# picks: a fresh call beats a stale one, a call the price already ran with drops out, low weight never shows
+now = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+def c(asset, w, t, p0=None, p1=None, d="bullish"):
+    return dict(asset=asset, weight=w, created_at=t, p0=p0, p1=p1, direction=d)
+got = picks([c("OLD", "high", "2026-11-07T14:00:00Z"), c("NEW", "high", "2026-11-08T11:00:00Z"),
+             c("RAN", "high", "2026-11-08T11:00:00Z", 100, 115), c("LOW", "low", "2026-11-08T11:00:00Z")], now, {})
+assert [r["asset"] for r, _, _ in got] == ["NEW", "OLD"], got
+# agreement lifts a medium call above a lone high one of the same age
+got = picks([c("A", "high", "2026-11-08T11:00:00Z"), c("B", "medium", "2026-11-08T11:00:00Z")], now, {"B": (3, 0)})
+assert got[0][0]["asset"] == "B"
 print("ok")

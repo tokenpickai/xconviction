@@ -70,14 +70,14 @@ def local_time(iso):
     return f"{t:%b} {t.day}, {t.hour % 12 or 12}:{t:%M} {t:%p}"
 
 
-def item(r, show_asset=True):
+def item(r, show_asset=True, why=""):
     arrow = "▲" if r["direction"] == "bullish" else "▼"
     flip = '<span class="flip">flipped</span>' if r.get("flip") else ""
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
-    return (f'<li class="w-{r["weight"]}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
+    return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
             f'<span class="wt">{r["weight"]}</span>{flip} {pic}<b>{e(speaker(r))}:</b> {e(r["summary"])}'
-            f'<div class="meta">{local_time(r["created_at"])} · {move(r)}'
+            f'<div class="meta">{why}{local_time(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
@@ -108,11 +108,44 @@ def consensus(rows, cutoff):
     return sorted(out, key=lambda t: (-abs(t[1] - t[2]), -(t[1] + t[2])))
 
 
+def picks(rows, now, votes, n=3):
+    """Act now: the strongest medium/high items of the last 24h that the price hasn't already run with.
+    votes = {asset: (up, down)} from consensus."""
+    # ponytail: hand-set heuristic (weight x agreement x freshness x room left); tune once there's a week of data
+    cutoff = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+    best = {}
+    for r in rows:
+        if r["created_at"] < cutoff or r["weight"] == "low":
+            continue
+        up, down = votes.get(r["asset"], (0, 0))
+        agree = max(1, up if r["direction"] == "bullish" else down)
+        moved = 0.0  # % the price already moved in the call's direction
+        if r["p0"] and r["p1"]:
+            moved = 100 * (r["p1"] / r["p0"] - 1) * (1 if r["direction"] == "bullish" else -1)
+        age_h = (now - datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))).total_seconds() / 3600
+        score = W[r["weight"]] * (1 + 0.5 * (agree - 1)) * max(0, 1 - max(0, moved) / 10) * max(0, 1 - age_h / 48)
+        key = (r["asset"], r["direction"])
+        if score > 0 and score > best.get(key, (0,))[0]:
+            best[key] = (score, r, agree, moved)
+    return [t[1:] for t in sorted(best.values(), key=lambda t: -t[0])[:n]]
+
+
+def picks_section(rows, now, votes):
+    out = []
+    for r, agree, moved in picks(rows, now, votes):
+        reasons = [f"{agree} accounts agree"] if agree > 1 else []
+        if r["p0"] and r["p1"]:
+            reasons.append("price hasn't moved yet" if abs(moved) < 1 else f"{moved:+.1f}% in its direction so far")
+        why = "".join(f'<span class="why">{x}</span> · ' for x in reasons)
+        out.append(item(r, why=why))
+    return f'<div class="label">Act now</div><ul class="picks">{"".join(out)}</ul>' if out else ""
+
+
 def assets_section(rows):
     cutoff = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     cards = []
     for asset, up, down, flip in consensus(rows, cutoff):
-        cards.append(f'<div class="card"><b>{e(asset)}</b>{"<i title=flipped></i>" if flip else ""}'
+        cards.append(f'<div class="card" data-asset="{e(asset)}" role="button" tabindex="0"><b>{e(asset)}</b>{"<i title=flipped></i>" if flip else ""}'
                      f'<span class="dir bullish">▲{up}</span><span class="dir bearish">▼{down}</span></div>')
     return (f'<div class="strip"><button class="nav prev" aria-label="Scroll left">‹</button>'
             f'<div class="cards">{"".join(cards)}</div>'
@@ -147,6 +180,9 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .strip{{position:relative}}
 .cards{{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}} .cards::-webkit-scrollbar{{display:none}}
 .card{{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--tile);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:14px;white-space:nowrap}}
+.card{{cursor:pointer}} .card.on{{border-color:var(--fg)}}
+.label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
+.picks{{border-bottom:2px solid var(--line)}} .picks li:last-child{{border-bottom:0}} .why{{color:var(--fg);font-weight:500}}
 .card b{{font-weight:700}} .card .dir{{font-weight:600}} .card i{{width:6px;height:6px;border-radius:50%;background:var(--flip)}}
 .nav{{position:absolute;top:0;bottom:0;width:48px;border:0;font-size:22px;color:var(--fg);cursor:pointer;opacity:0;transition:opacity .15s}}
 .nav.prev{{left:0;background:linear-gradient(to right,var(--bg) 40%,transparent);text-align:left}}
@@ -155,6 +191,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 </style>
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
 {assets_section(rows)}
+{picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
 <ul id="calls" role="tabpanel">{"".join(item(r) for r in calls)}</ul>
 <ul id="onchain" role="tabpanel">{"".join(item(r) for r in chain)}</ul>
@@ -170,6 +207,13 @@ let saved; try {{ saved = localStorage.tab; }} catch (_) {{}}
 show(saved === 'onchain' ? 'onchain' : 'calls');
 const u = document.querySelector('.updated'), mins = Math.round((Date.now() - new Date(u.dataset.t)) / 60000);
 u.textContent = 'updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
+let only = null;
+document.querySelectorAll('.card').forEach(card => card.onclick = card.onkeydown = ev => {{
+  if (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ') return;
+  only = only === card.dataset.asset ? null : card.dataset.asset;
+  document.querySelectorAll('.card').forEach(k => k.classList.toggle('on', k.dataset.asset === only));
+  document.querySelectorAll('li[data-asset]').forEach(li => li.hidden = only !== null && li.dataset.asset !== only);
+}});
 const c = document.querySelector('.cards'), prev = document.querySelector('.prev'), next = document.querySelector('.next');
 const sync = () => {{ prev.hidden = c.scrollLeft <= 0; next.hidden = c.scrollLeft + c.clientWidth >= c.scrollWidth - 1; }};
 prev.onclick = () => c.scrollBy({{left: -c.clientWidth * 0.8}});
