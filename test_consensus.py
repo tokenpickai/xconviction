@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import sqlite3
 
-from build import collapse, consensus, emerging, local_time, picks, speaker, spend
+from build import collapse, consensus, emerging, local_time, picks, speaker, spend, stances, win_rates
 
 
 def r(handle, kind, direction, weight="high", t="2026-11-06", flip=False):
@@ -82,18 +82,4 @@ sc.executemany("insert into calls values(?,?)", [("a", "2026-11-07T00:00:00")])
 assert silent(sc, {"a", "b"}, now) == []  # a has a call, b is too new to judge (first post inside the window)
 sc.execute("insert into posts values('b','2026-10-25T00:00:00','{}')")
 assert silent(sc, {"a", "b"}, now) == ["b"]
-# win rate: a bullish call wins if the coin beat BTC; BTC calls count plain direction; too-young calls are skipped
-from scout import win_rate
-class FakePx:
-    def __init__(self, at): self.f = at
-    def at(self, asset, t): return self.f(asset, t)
-t0 = datetime(2026, 11, 1, tzinfo=timezone.utc).timestamp()
-grow = lambda asset, t: {"SOL": 1 + 0.10 * (t - t0) / 86400 / 7, "BTC": 1 + 0.05 * (t - t0) / 86400 / 7}[asset]
-calls = [("2026-11-01T00:00:00Z", "SOL", "bullish"), ("2026-11-01T00:00:00Z", "SOL", "bearish"),
-         ("2026-11-01T00:00:00Z", "BTC", "bullish"), ("2026-11-07T12:00:00Z", "SOL", "bullish")]
-assert win_rate(calls, FakePx(grow), now) == (2, 3, 3), win_rate(calls, FakePx(grow), now)
-# collapse: the same account + coin + direction folds under its first item; a different direction stays separate
-rs = [dict(handle="k", asset="ZCAT", direction="bullish", kind="call", n=i) for i in range(3)] + [dict(handle="k", asset="ZCAT", direction="bearish", kind="call", n=9)]
-g = collapse(rs)
-assert [(h["n"], [x["n"] for x in more]) for h, more in g] == [(0, [1, 2]), (9, [])], g
 print("ok")

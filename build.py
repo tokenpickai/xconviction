@@ -40,6 +40,9 @@ def load():
     for r in rows:
         r["name"] = names.get(r["handle"], "")
         r["avatar"] = r["handle"] in avatars
+    rates = win_rates(con, datetime.now(timezone.utc))
+    for r in rows:
+        r["wr"] = rates.get(r["handle"], (0, 0))
         r["p0"], r["p1"] = at_call.get((r["post_id"], r["asset"])), now.get(r["asset"])
     return rows
 
@@ -76,6 +79,15 @@ def local_time(iso):
     return f"{t:%b} {t.day}, {t.hour % 12 or 12}:{t:%M} {t:%p}"
 
 
+def wr_tag(wr):
+    """Small "4/10" after a KOL's name once they have enough scored stances."""
+    if not wr or wr[1] < MIN_SCORED:
+        return ""
+    w, n = wr
+    tone = "good" if w / n >= 0.5 else "bad" if w / n < 0.4 else ""
+    return f' <span class="wr {tone}" title="{w} of {n} calls beat BTC (judged 7 days after the call; newer ones so far)">{w}/{n}</span>'
+
+
 def item(r, show_asset=True, why=None):
     """why=None: a normal item. why="..." (even empty): an Act now pick, with its reasons."""
     act = '<span class="act">Act now</span>' if why is not None else ""
@@ -85,9 +97,56 @@ def item(r, show_asset=True, why=None):
     snap = ' <span class="wt snap">position</span>' if r.get("snapshot") else ""
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
     return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} {act}'
-            f'<span class="wt">{r["weight"]}</span>{flip}{snap} {pic}<b>{e(speaker(r))}:</b> {e(r["summary"])}'
+            f'<span class="wt">{r["weight"]}</span>{flip}{snap} {pic}<b>{e(speaker(r))}</b>{wr_tag(r.get("wr"))}<b>:</b> {e(r["summary"])}'
             f'<div class="meta">{why or ""}{when(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
+
+
+HORIZON_DAYS, EARLY_DAYS = 7, 3  # a stance is judged 7 days after it starts; 3+ days gives an early read
+MIN_SCORED = 5                   # show a win rate / let it move rankings only from 5 scored stances
+
+
+def stances(calls):
+    """Repeat calls collapse into stances: an account's same-direction calls on a coin form one stance, which ends
+    when it flips direction or 7 days after it began. Returns the first call of each stance (its entry)."""
+    open_, heads = {}, []
+    for c in calls:  # oldest first
+        key = (c["handle"], c["asset"])
+        cur = open_.get(key)
+        if cur and cur["direction"] == c["direction"] and ts(c["created_at"]) - ts(cur["created_at"]) < HORIZON_DAYS * 86400:
+            continue
+        open_[key] = c
+        heads.append(c)
+    return heads
+
+
+def ts(iso):
+    return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+
+
+def win_rates(con, now):
+    """{handle: (wins, scored)} for accounts that mostly make calls (on-chain accounts are exempt).
+    A stance wins if, 7 days on (or now, for 3-7 day old stances), the coin beat BTC in the called direction.
+    BTC calls are judged on BTC's own move. Low-weight remarks and whole-market calls don't count."""
+    kinds = {}
+    for h, k, n in con.execute("select handle, kind, count(*) from calls group by 1, 2"):
+        kinds.setdefault(h, {})[k] = n
+    kols = {h for h, k in kinds.items() if k.get("call", 0) >= k.get("onchain", 0)}
+    price_now = dict(con.execute("select symbol, price from coins"))
+    cols = "handle created_at asset direction p0 btc0 p7 b7".split()
+    calls = [dict(zip(cols, r)) for r in con.execute("""select c.handle, c.created_at, c.asset, c.direction,
+            p.price, p.btc0, p.p7, p.b7 from calls c join call_prices p on p.post_id = c.post_id and p.asset = c.asset
+            where c.kind = 'call' and c.weight != 'low' and c.asset != 'CRYPTO' order by c.created_at""")]
+    out = {}
+    for c in stances(c for c in calls if c["handle"] in kols):
+        age = (now.timestamp() - ts(c["created_at"])) / 86400
+        a1, b1 = (c["p7"], c["b7"]) if c["p7"] and c["b7"] else (price_now.get(c["asset"]), price_now.get("BTC"))
+        if age < EARLY_DAYS or None in (c["p0"], c["btc0"], a1, b1):
+            continue
+        rel = a1 / c["p0"] - 1 - (0 if c["asset"] == "BTC" else b1 / c["btc0"] - 1)
+        w, n = out.get(c["handle"], (0, 0))
+        out[c["handle"]] = (w + ((rel > 0) == (c["direction"] == "bullish")), n + 1)
+    return out
 
 
 def consensus(rows, cutoff):
@@ -140,7 +199,9 @@ def picks(rows, now, votes, n=3):
             moved = 100 * (r["p1"] / r["p0"] - 1) * (1 if r["direction"] == "bullish" else -1)
         age_h = (now - datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))).total_seconds() / 3600
         # a standing position is context, not news: rank it well below fresh moves
-        score = W[r["weight"]] * (0.25 if r.get("snapshot") else 1) * (1 + 0.5 * (agree - 1)) * max(0, 1 - max(0, moved) / 10) * max(0, 1 - age_h / 48)
+        won, scored = r.get("wr") or (0, 0)
+        track = 0.5 + won / scored if scored >= MIN_SCORED else 1  # proven callers rise (up to x1.5), poor ones sink (down to x0.5)
+        score = track * W[r["weight"]] * (0.25 if r.get("snapshot") else 1) * (1 + 0.5 * (agree - 1)) * max(0, 1 - max(0, moved) / 10) * max(0, 1 - age_h / 48)
         key = (r["asset"], r["direction"])
         if score > 0 and score > best.get(key, (0,))[0]:
             best[key] = (score, r, agree, moved)
@@ -338,6 +399,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .card:hover{{background:var(--tile)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .why{{color:var(--fg);font-weight:500}}
+.wr{{font-size:12px;font-weight:500;color:var(--mute)}} .wr.good{{color:var(--up)}} .wr.bad{{color:var(--down)}}
 .act{{font-size:12px;line-height:16px;font-weight:700;border-radius:999px;padding:0 8px;margin-right:6px;background:var(--hi);color:#000;display:inline-block}}
 .card b{{font-weight:700}} .card .dir{{font-weight:600}} .card i{{width:6px;height:6px;border-radius:50%;background:var(--flip)}}
 @media (max-width:1000px){{.layout{{grid-template-columns:minmax(0,1fr)}} .layout .left{{min-width:0}} .left-inner{{position:static;width:auto;max-height:none;margin:0;padding:16px 16px 0}}

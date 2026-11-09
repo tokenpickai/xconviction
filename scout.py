@@ -6,13 +6,13 @@ Writes scout-report.md when it did something, for the workflow to post as a GitH
 
     .venv/bin/python scout.py --now
 """
-import json, sqlite3, sys, time, urllib.error
+import json, sqlite3, sys, urllib.error
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import anthropic
 
-import check, extract, fetch, prices
+import build, check, extract, fetch, prices
 
 ROOT = Path(__file__).parent
 MAX_TRIALS = 3     # each trial reads at most TRIAL_POSTS posts: <= ~$1 X + ~$0.30 Claude
@@ -20,9 +20,8 @@ TRIAL_POSTS = 200  # cap so one prolific candidate can't drain X credits (an unc
 RETRY_DAYS = 30  # don't re-trial a rejected handle for a month
 # ponytail: hand-set bars, from the first dozen accounts; tune as the scout's track record grows
 MIN_POSTS, MIN_ITEMS, MIN_YIELD = 10, 3, 0.10
-# KOL calls must also win: a call wins if the coin beat BTC in the call's direction (BTC calls: plain direction)
-HORIZON, EARLY = 7, 3        # full score after 7 days; provisional score from 3 days
-MIN_WIN, MIN_SCORED = 0.40, 10   # tracked KOLs: drop under 40% over 10+ full scores
+# KOLs must also win: scored per stance by build.win_rates (beat BTC in the called direction after 7 days)
+MIN_WIN, MIN_SCORED = 0.40, 10   # tracked KOLs: drop under 40% over 10+ scored stances
 TRIAL_MIN_WIN, TRIAL_SCORED = 0.35, 5  # candidates: skip under 35% over 5+ provisional scores
 
 
@@ -44,46 +43,6 @@ def candidates(con, tracked, skip, now, days=14):
                 by.setdefault(u, []).append(handle)
     ranked = sorted(by.items(), key=lambda kv: (-len(set(kv[1])), -len(kv[1])))
     return [(u, len(set(hs)), len(hs)) for u, hs in ranked if len(set(hs)) >= 2 or len(hs) >= 3]
-
-
-class Prices:
-    """Hourly USD price series per coin from CoinGecko, fetched once per asset per run."""
-    def __init__(self, con, start):
-        self.ids = dict(con.execute("select symbol, id from coins"))
-        self.start, self.cache = start, {}
-
-    def at(self, asset, t):
-        if asset not in self.cache:
-            cid = self.ids.get(asset)
-            self.cache[asset] = prices.get(f"/coins/{cid}/market_chart/range?vs_currency=usd&from={int(self.start)}"
-                                           f"&to={int(datetime.now(timezone.utc).timestamp())}")["prices"] if cid else []
-            time.sleep(2)  # stay under CoinGecko's free-tier rate limit
-        series = self.cache[asset]
-        return min(series, key=lambda p: abs(p[0] / 1000 - t))[1] if series else None
-
-
-def win_rate(calls, px, now):
-    """(wins, scored, full) over medium/high calls on coins we can price. full = how many had the whole 7 days."""
-    wins = scored = full = 0
-    for created, asset, direction in calls:
-        t0 = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
-        age = (now.timestamp() - t0) / 86400
-        if asset == "CRYPTO" or age < EARLY:
-            continue
-        t1 = t0 + min(age, HORIZON) * 86400
-        a0, a1, b0, b1 = px.at(asset, t0), px.at(asset, t1), px.at("BTC", t0), px.at("BTC", t1)
-        if None in (a0, a1, b0, b1):
-            continue
-        rel = a1 / a0 - 1 - (0 if asset == "BTC" else b1 / b0 - 1)
-        wins += (rel > 0) == (direction == "bullish")
-        scored += 1
-        full += age >= HORIZON
-    return wins, scored, full
-
-
-def kol_calls(con, handle):
-    return con.execute("""select created_at, asset, direction from calls where lower(handle)=lower(?)
-        and kind='call' and weight != 'low'""", (handle,)).fetchall()
 
 
 def is_kol(con, handle):
@@ -131,7 +90,7 @@ def main(now, force=False):
     lines, added, dropped = [], [], []
 
     client = anthropic.Anthropic(api_key=extract.env("ANTHROPIC_API_KEY"))
-    px = Prices(con, (now - timedelta(days=21)).timestamp())
+    coins = {sym: (cid, price, at) for sym, cid, price, at in con.execute("select symbol, id, price, updated_at from coins")}
     for u, mentioners, mentions in candidates(con, tracked, skip, now)[:MAX_TRIALS]:
         trial = fetch.db(":memory:")
         extract.db(trial)
@@ -143,11 +102,14 @@ def main(now, force=False):
                          + (" (out of X credits)" if err.code == 402 else ""))
             break
         extract.process(trial, client)
+        prices.schema(trial)
+        trial.executemany("insert into coins values(?,?,?,?)", [(sym, *v) for sym, v in coins.items()])
+        prices.fill(trial, coins, now.timestamp())
         # count the trial's spend in the real usage log, so the footer stays honest
         con.executemany("insert into usage values(?,?,?,?)", trial.execute("select * from usage").fetchall())
         ok, why = verdict(trial, u)
         if ok and is_kol(trial, u):
-            w, n, _ = win_rate(kol_calls(trial, u), px, now)
+            w, n = build.win_rates(trial, now).get(u, (0, 0))
             why += f"; early win rate {w}/{n}" if n else "; no calls old enough to score yet"
             if n >= TRIAL_SCORED and w / n < TRIAL_MIN_WIN:
                 ok, why = False, why + f" (under {TRIAL_MIN_WIN:.0%})"
@@ -160,13 +122,12 @@ def main(now, force=False):
             added.append(u)
         con.commit()  # keep each finished trial even if a later one fails
 
-    for name in handles:  # KOL scorecard; drop only on a full-horizon sample big enough to trust
-        if not is_kol(con, name):
-            continue
-        w, n, full = win_rate(kol_calls(con, name), px, now)
+    rates = build.win_rates(con, now)
+    for name in handles:  # KOL scorecard; drop only on a sample big enough to trust
+        w, n = rates.get(name, (0, 0))
         if n:
-            lines.append(f"- 📊 @{name}: {w}/{n} calls beat BTC ({w / n:.0%}; {full} with the full {HORIZON} days)")
-        if full >= MIN_SCORED and w / n < MIN_WIN and name not in dropped:
+            lines.append(f"- 📊 @{name}: {w}/{n} stances beat BTC ({w / n:.0%})")
+        if n >= MIN_SCORED and w / n < MIN_WIN and name not in dropped:
             dropped.append(name)
             log(con, name, "dropped", f"win rate {w}/{n}")
             lines.append(f"- 🗑 dropped **@{name}**: win rate {w / n:.0%} is under {MIN_WIN:.0%}")
