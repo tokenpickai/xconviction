@@ -167,15 +167,24 @@ def emerging(con, now, days=3, n=10):
     fresh = (now - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%S")
     first = dict(con.execute("select theme, min(created_at) from themes group by theme"))
     out = []
-    for theme, posts, accounts, latest in con.execute("""select theme, count(distinct post_id), count(distinct handle),
-            max(created_at) from themes where created_at >= ? group by theme""", (cut,)):
+    for theme, posts, accounts, latest, who in con.execute("""select theme, count(distinct post_id), count(distinct handle),
+            max(created_at), min(handle) from themes where created_at >= ? group by theme""", (cut,)):
         if posts >= 2 or accounts >= 2 or first[theme] >= fresh:  # a brand-new pitch counts even once
-            out.append(dict(theme=theme, posts=posts, accounts=accounts, latest=latest, new=first[theme] >= fresh))
+            out.append(dict(theme=theme, posts=posts, accounts=accounts, latest=latest, new=first[theme] >= fresh, who=who))
     out.sort(key=lambda t: t["latest"], reverse=True)  # newest first among ties
     # ponytail: hand-set score; breadth beats volume (posts capped at 5 so one chatty account can't top it),
     # brand-new gets a bump. Tune with more history.
-    out.sort(key=lambda t: -(3 * t["accounts"] + min(t["posts"], 5) + 3 * t["new"]))
-    return out[:n]
+    # a lone account's repeats count for little: its posts cap at 2, a shared theme's at 5
+    out.sort(key=lambda t: -(3 * t["accounts"] + min(t["posts"], 5 if t["accounts"] > 1 else 2) + 3 * t["new"]))
+    # a theme only one account talks about takes at most one slot per account, so one shiller can't fill the card
+    seen, kept = set(), []
+    for t in out:
+        if t["accounts"] == 1:
+            if t["who"] in seen:
+                continue
+            seen.add(t["who"])
+        kept.append(t)
+    return kept[:n]
 
 
 def emerging_section(con, now):
@@ -186,8 +195,12 @@ def emerging_section(con, now):
     pics = {h for (h,) in con.execute("select handle from accounts where avatar is not null")}
     blocks = []
     for t in themes:
-        posts = con.execute("""select p.id, p.handle, p.created_at, p.text from themes t join posts p on p.id = t.post_id
-            where t.theme = ? order by p.created_at desc limit 5""", (t["theme"],)).fetchall()
+        posts, per = [], {}
+        for row in con.execute("""select p.id, p.handle, p.created_at, p.text from themes t join posts p on p.id = t.post_id
+                where t.theme = ? order by p.created_at desc""", (t["theme"],)):
+            per[row[1]] = per.get(row[1], 0) + 1
+            if per[row[1]] <= 2 and len(posts) < 5:  # at most 2 posts per account, 5 in all
+                posts.append(row)
         lis = "".join(
             f'<li>{f"<img class=av src=avatars/{e(h)}.jpg alt>" if h in pics else ""}'
             f'<b>{e(speaker(dict(name=names.get(h, ""), handle=h)))}:</b> {e(text[:180])}{"…" if len(text) > 180 else ""}'
@@ -239,9 +252,32 @@ def pinned(rows, whys):
     return top + [r for r in rows if key(r) not in whys]
 
 
+def collapse(rows):
+    """Group repeats: the same account saying the same direction on the same coin shows once (its first,
+    i.e. pinned or newest, item), with the rest folded under it. [(head, [repeats...]), ...]"""
+    groups, at = [], {}
+    for r in rows:
+        key = (r["handle"], r["asset"], r["direction"], r["kind"])
+        if key in at:
+            groups[at[key]][1].append(r)
+        else:
+            at[key] = len(groups)
+            groups.append((r, []))
+    return groups
+
+
 def paged(rows, whys={}):
-    """First PAGE items visible, the rest revealed PAGE at a time by the Show more button."""
-    lis = "".join(item(r, why=whys.get((r["post_id"], r["asset"]))).replace('<li class="', '<li class="later ' if i >= PAGE else '<li class="', 1) for i, r in enumerate(rows))
+    """Repeats folded under their first item; first PAGE groups visible, the rest revealed PAGE at a time."""
+    lis = []
+    for i, (r, more) in enumerate(collapse(rows)):
+        li = item(r, why=whys.get((r["post_id"], r["asset"])))
+        if more:
+            fold = (f'<details class="repeats"><summary>+{len(more)} more from {e(speaker(r))} on {e(r["asset"])}</summary>'
+                    f'<ul>{"".join(item(x) for x in more)}</ul></details>')
+            li = li[:-len("</li>")] + fold + "</li>"
+        lis.append(li.replace('<li class="', '<li class="later ' if i >= PAGE else '<li class="', 1))
+    lis = "".join(lis)
+    rows = collapse(rows)
     more = '<button class="more">Show more</button>' if len(rows) > PAGE else ""
     return f'<ul class="paged">{lis}</ul>{more}'
 
@@ -291,6 +327,8 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 li.later{{display:none}} .filtering li.later:not([hidden]){{display:list-item}} .filtering .more{{display:none}}
 .more{{display:block;width:100%;padding:14px 0;background:none;border:0;border-bottom:1px solid var(--line);color:var(--fg);font:500 15px/20px inherit;font-family:inherit;cursor:pointer}}
 .more:hover{{background:var(--tile)}}
+.repeats{{margin-top:6px}} .repeats summary{{cursor:pointer;color:var(--mute);font-size:13px}}
+main .repeats li{{padding:10px 0 0 12px;border-bottom:0;font-size:14px}}
 footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .left-inner{{position:sticky;top:0;max-height:100vh;overflow-y:auto;scrollbar-width:none;width:240px;margin-left:auto;padding:16px 20px 16px 0;box-sizing:border-box}}
 .left-inner::-webkit-scrollbar{{display:none}} .left .logo{{flex-wrap:wrap;margin:4px 0 16px 12px}}
