@@ -68,4 +68,18 @@ assert picks([c("ETH", "high", "2026-11-08T11:00:00Z", kind="onchain"), c("SOL",
 got = picks([dict(c("ETH", "medium", "2026-11-08T11:00:00Z", kind="onchain"), proven=1),
              dict(c("BTC", "high", "2026-11-08T11:00:00Z", kind="onchain"), proven=1, snapshot=1)], now, {})
 assert [r["asset"] for r, _, _ in got] == ["ETH"], got
+# scout: candidates need 2+ mentioners or 3+ mentions, skip tracked handles; silent flags quiet old accounts
+import json as _json
+from scout import candidates, silent
+sc = sqlite3.connect(":memory:")
+sc.execute("create table posts(handle text, created_at text, raw text)")
+sc.execute("create table calls(handle text, created_at text)"); sc.execute("create table themes(handle text, created_at text)")
+m = lambda *us: _json.dumps({"entities": {"mentions": [{"username": u} for u in us]}})
+sc.executemany("insert into posts values(?,?,?)", [("a", "2026-11-08T00:00:00", m("Good", "Tracked")), ("b", "2026-11-08T00:00:00", m("Good")),
+    ("a", "2026-11-08T00:00:00", m("Once")), ("a", "2026-10-20T00:00:00", m("Old")), ("a", "2026-11-08T00:00:00", m("Old"))])
+assert [c[0] for c in candidates(sc, {"a", "b", "tracked"}, set(), now)] == ["Good"]
+sc.executemany("insert into calls values(?,?)", [("a", "2026-11-07T00:00:00")])
+assert silent(sc, {"a", "b"}, now) == []  # a has a call, b is too new to judge (first post inside the window)
+sc.execute("insert into posts values('b','2026-10-25T00:00:00','{}')")
+assert silent(sc, {"a", "b"}, now) == ["b"]
 print("ok")

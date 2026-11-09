@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
   pages: write
   id-token: write
 
@@ -46,6 +47,14 @@ jobs:
         continue-on-error: true
         run: python prices.py
 
+      - name: Weekly scout
+        # only does work Mondays 13:xx UTC; a failed scout must not block the page update
+        continue-on-error: true
+        run: python scout.py
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
       - run: python build.py
 
       - name: Save database
@@ -60,6 +69,19 @@ jobs:
           git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish scout results
+        if: hashFiles('scout-report.md') != ''
+        run: |
+          if ! git diff --quiet accounts.txt; then
+            git config user.name github-actions
+            git config user.email github-actions@users.noreply.github.com
+            git commit -qm "Scout: update accounts" accounts.txt
+            git push -q origin HEAD:main
+          fi
+          gh issue create --title "Scout report $(date -u +%F)" --body-file scout-report.md
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
