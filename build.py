@@ -70,15 +70,17 @@ def local_time(iso):
     return f"{t:%b} {t.day}, {t.hour % 12 or 12}:{t:%M} {t:%p}"
 
 
-def item(r, show_asset=True, why=""):
+def item(r, show_asset=True, why=None):
+    """why=None: a normal item. why="..." (even empty): an Act now pick, with its reasons."""
+    act = '<span class="act">Act now</span>' if why is not None else ""
     arrow = "▲" if r["direction"] == "bullish" else "▼"
     flip = '<span class="flip">flipped</span>' if r.get("flip") else ""
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
     snap = ' <span class="wt snap">position</span>' if r.get("snapshot") else ""
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
-    return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} '
+    return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} {act}'
             f'<span class="wt">{r["weight"]}</span>{flip}{snap} {pic}<b>{e(speaker(r))}:</b> {e(r["summary"])}'
-            f'<div class="meta">{why}{local_time(r["created_at"])} · {move(r)}'
+            f'<div class="meta">{why or ""}{local_time(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
@@ -139,18 +141,17 @@ def picks(rows, now, votes, n=3):
     return [t[1:] for t in sorted(best.values(), key=lambda t: -t[0])[:n]]
 
 
-def picks_section(rows, now, votes):
-    out = []
+def pick_reasons(rows, now, votes):
+    """{(post_id, asset): reason html} for the Act now picks, in rank order."""
+    out = {}
     for r, agree, moved in picks(rows, now, votes):
         reasons = ["proven trader"] if r.get("proven") else []
         reasons += [f"{agree} accounts agree"] if agree > 1 else []
         if r["p0"] and r["p1"]:
             reasons.append("price hasn't moved yet" if abs(moved) < 1 else
                            f"{moved:.1f}% in its direction so far" if moved > 0 else f"price moved {-moved:.1f}% against it")
-        why = "".join(f'<span class="why">{x}</span> · ' for x in reasons)
-        out.append(item(r, why=why))
-    body = "".join(out) or '<li class="meta">No strong calls in the last 24 hours.</li>'
-    return f'<ul class="picks">{body}</ul>'
+        out[(r["post_id"], r["asset"])] = "".join(f'<span class="why">{x}</span> · ' for x in reasons)
+    return out
 
 
 def emerging(con, now, days=3, n=10):
@@ -192,7 +193,7 @@ def emerging_section(con, now):
         blocks.append(f'<details><summary><b>{e(t["theme"])}</b>{tag}<span class="meta">{t["posts"]} post{"s" * (t["posts"] != 1)} · '
                       f'{t["accounts"]} account{"s" * (t["accounts"] != 1)}</span>'
                       f'{f"<div class=pitch>{e(pitch[0])}</div>" if pitch else ""}</summary><ul>{lis}</ul></details>')
-    return f'<div class="card-box"><h2>Emerging</h2><div class="emerging">{"".join(blocks)}</div></div>'
+    return f'<div class="card-box"><h2>Narrative</h2><div class="emerging">{"".join(blocks)}</div></div>'
 
 
 def spend(con, now):
@@ -210,7 +211,7 @@ def spend(con, now):
     week = since(7)
     # a monthly pace from a few hours is wildly off (one day's user-lookup charge lands in the first run), so wait a day
     pace = f" · ~${week / min(7, tracked) * 30:.0f}/month pace" if tracked >= 1 else " · monthly pace after 24h"
-    return f'<footer>Est. spend: ${since(1):.2f} last 24h · ${week:.2f} last 7 days{pace}</footer>'
+    return f'Est. spend: ${since(1):.2f} last 24h · ${week:.2f} last 7 days{pace}'
 
 
 def assets_section(rows):
@@ -225,9 +226,16 @@ def assets_section(rows):
 PAGE = 30
 
 
-def paged(rows):
+def pinned(rows, whys):
+    """Act now picks first, in rank order, then everything else newest first."""
+    key = lambda r: (r["post_id"], r["asset"])
+    top = sorted((r for r in rows if key(r) in whys), key=lambda r: list(whys).index(key(r)))
+    return top + [r for r in rows if key(r) not in whys]
+
+
+def paged(rows, whys={}):
     """First PAGE items visible, the rest revealed PAGE at a time by the Show more button."""
-    lis = "".join(item(r).replace('<li class="', '<li class="later ' if i >= PAGE else '<li class="', 1) for i, r in enumerate(rows))
+    lis = "".join(item(r, why=whys.get((r["post_id"], r["asset"]))).replace('<li class="', '<li class="later ' if i >= PAGE else '<li class="', 1) for i, r in enumerate(rows))
     more = '<button class="more">Show more</button>' if len(rows) > PAGE else ""
     return f'<ul class="paged">{lis}</ul>{more}'
 
@@ -235,6 +243,8 @@ def paged(rows):
 def page(rows, spend_html="", emerging_html=""):
     # the feed covers the same 7 days as the consensus; older items stay in the database
     week = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+    now = datetime.now(timezone.utc)
+    whys = pick_reasons(rows, now, {a: (u, d) for a, u, d, _ in consensus(rows, week)})
     calls = [r for r in reversed(rows) if r["kind"] == "call" and r["created_at"] >= week]
     chain = [r for r in reversed(rows) if r["kind"] == "onchain" and r["created_at"] >= week]
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -247,7 +257,8 @@ body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter
   -webkit-font-smoothing:antialiased;margin:0}}
 /* X-style 3 columns: empty left rail, 600px main column, 350px right sidebar; stacks on narrow screens */
 .layout{{display:grid;grid-template-columns:minmax(0,1fr) 600px minmax(0,1fr);min-height:100vh}}
-.layout main{{border-left:1px solid var(--line);border-right:1px solid var(--line);padding:16px;min-width:0}}
+.layout main{{border-left:1px solid var(--line);border-right:1px solid var(--line);padding:0;min-width:0}}
+main li{{padding:12px 16px}} main footer{{padding:0 16px}}
 .layout .right{{padding:16px 0 16px 30px}} .right-inner{{position:sticky;top:16px;max-width:350px}}
 .card-box{{border:1px solid var(--line);border-radius:16px;padding:12px 16px}}
 .card-box h2{{font-size:20px;line-height:24px;font-weight:800;margin:0 0 4px;color:var(--fg)}}
@@ -266,7 +277,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .w-high .wt{{color:var(--hi);border-color:var(--hi)}} .w-medium .wt{{color:var(--md);border-color:var(--md)}} .w-low .wt{{color:var(--mute);border-color:var(--line)}}
 .flip{{color:var(--bg);background:var(--fg);border-color:var(--fg)}}
 .logo{{display:flex;align-items:center;font:800 20px/24px Archivo,sans-serif;letter-spacing:-.4px;margin:4px 0 16px}}
-.updated{{margin-left:auto;font:400 13px/20px TwitterChirp,Inter,sans-serif;letter-spacing:0;color:var(--mute)}}
+
 .logo svg{{width:17px;height:17px;fill:var(--fg);margin-right:1px}}
 .emerging details{{border-bottom:1px solid var(--line);padding:10px 0}} .emerging summary{{cursor:pointer}}
 .emerging summary .meta{{display:inline-block;margin-left:8px;white-space:nowrap}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
@@ -277,25 +288,25 @@ li.later{{display:none}} .filtering li.later:not([hidden]){{display:list-item}} 
 footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .left-inner{{position:sticky;top:0;max-height:100vh;overflow-y:auto;scrollbar-width:none;width:240px;margin-left:auto;padding:16px 20px 16px 0;box-sizing:border-box}}
 .left-inner::-webkit-scrollbar{{display:none}} .left .logo{{flex-wrap:wrap;margin:4px 0 16px 12px}}
-.left .updated{{width:100%;margin:2px 0 0}}
+
 .tickers{{display:flex;flex-direction:column;gap:2px}}
 .card{{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:999px;font-size:15px;cursor:pointer;white-space:nowrap}}
 .card:hover{{background:var(--tile)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .why{{color:var(--fg);font-weight:500}}
+.act{{font-size:12px;line-height:16px;font-weight:700;border-radius:999px;padding:0 8px;margin-right:6px;background:var(--hi);color:#000;display:inline-block}}
 .card b{{font-weight:700}} .card .dir{{font-weight:600}} .card i{{width:6px;height:6px;border-radius:50%;background:var(--flip)}}
 @media (max-width:1000px){{.layout{{grid-template-columns:minmax(0,1fr)}} .layout .left{{min-width:0}} .left-inner{{position:static;width:auto;max-height:none;margin:0;padding:16px 16px 0}}
   .tickers{{flex-direction:row;overflow-x:auto;scrollbar-width:none}} .card b{{margin-right:0}}}}
 </style>
 <div class="layout"><aside class="left"><div class="left-inner">
-<div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
+<div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
 {assets_section(rows)}
 </div></aside><main>
-<div class="tabs" role="tablist"><button role="tab" data-tab="actnow">Act now</button><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
-<div id="actnow" role="tabpanel">{picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}</div>
-<div id="calls" role="tabpanel">{paged(calls)}</div>
-<div id="onchain" role="tabpanel">{paged(chain)}</div>
-{spend_html}
+<div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
+<div id="calls" role="tabpanel">{paged(pinned(calls, whys), whys)}</div>
+<div id="onchain" role="tabpanel">{paged(pinned(chain, whys), whys)}</div>
+<footer><span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span>{f" · {spend_html}" if spend_html else ""}</footer>
 </main><aside class="right"><div class="right-inner">{emerging_html}</div></aside></div>
 <script>
 const tabs = document.querySelectorAll('.tabs button');
@@ -305,9 +316,9 @@ const show = name => tabs.forEach(t => {{
   document.getElementById(t.dataset.tab).hidden = !on;
 }});
 tabs.forEach(t => t.onclick = () => show(t.dataset.tab));
-show('actnow');  // always open on Act now
+show('calls');
 const u = document.querySelector('.updated'), mins = Math.round((Date.now() - new Date(u.dataset.t)) / 60000);
-u.textContent = 'updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
+u.textContent = 'Updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
 document.querySelectorAll('.more').forEach(b => b.onclick = () => {{
   const later = b.previousElementSibling.querySelectorAll('li.later');
   [...later].slice(0, {PAGE}).forEach(li => li.classList.remove('later'));
