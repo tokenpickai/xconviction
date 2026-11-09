@@ -219,9 +219,7 @@ def assets_section(rows):
     for asset, up, down, flip in consensus(rows, cutoff):
         cards.append(f'<div class="card" data-asset="{e(asset)}" role="button" tabindex="0"><b>{e(asset)}</b>{"<i title=flipped></i>" if flip else ""}'
                      f'<span class="dir bullish">▲{up}</span><span class="dir bearish">▼{down}</span></div>')
-    return (f'<div class="strip"><button class="nav prev" aria-label="Scroll left">‹</button>'
-            f'<div class="cards">{"".join(cards)}</div>'
-            f'<button class="nav next" aria-label="Scroll right">›</button></div>')
+    return f'<nav class="tickers">{"".join(cards)}</nav>'
 
 
 PAGE = 30
@@ -254,7 +252,7 @@ body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter
 .card-box{{border:1px solid var(--line);border-radius:16px;padding:12px 16px}}
 .card-box h2{{font-size:20px;line-height:24px;font-weight:800;margin:0 0 4px;color:var(--fg)}}
 .card-box .emerging details:last-child{{border-bottom:0}}
-@media (max-width:1000px){{.layout{{grid-template-columns:1fr;max-width:600px;margin:0 auto}} .layout .left{{display:none}}
+@media (max-width:1000px){{.layout{{grid-template-columns:1fr;max-width:600px;margin:0 auto}} 
   .layout main{{border:0}} .layout .right{{padding:0 16px 16px}} .right-inner{{position:static;max-width:none}}}}
 .tabs{{display:flex;margin-top:16px}}
 .tabs button{{flex:1;background:none;border:0;border-bottom:2px solid var(--line);padding:16px 0;font:500 15px/20px inherit;font-family:inherit;color:var(--mute);cursor:pointer}}
@@ -270,28 +268,29 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .logo{{display:flex;align-items:center;font:800 20px/24px Archivo,sans-serif;letter-spacing:-.4px;margin:4px 0 16px}}
 .updated{{margin-left:auto;font:400 13px/20px TwitterChirp,Inter,sans-serif;letter-spacing:0;color:var(--mute)}}
 .logo svg{{width:17px;height:17px;fill:var(--fg);margin-right:1px}}
-.strip{{position:relative}}
-.cards{{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}} .cards::-webkit-scrollbar{{display:none}}
-.card{{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--tile);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:14px;white-space:nowrap}}
 .emerging details{{border-bottom:1px solid var(--line);padding:10px 0}} .emerging summary{{cursor:pointer}}
 .emerging summary .meta{{display:inline-block;margin-left:8px;white-space:nowrap}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
 .emerging .pitch{{font-size:14px;margin-top:2px}} .emerging ul{{margin-top:4px}} .emerging li{{padding:8px 0 8px 12px;border-bottom:0;font-size:14px}}
-li.later{{display:none}} .filtering li.later{{display:list-item}} .filtering .more{{display:none}}
+li.later{{display:none}} .filtering li.later:not([hidden]){{display:list-item}} .filtering .more{{display:none}}
 .more{{display:block;width:100%;padding:14px 0;background:none;border:0;border-bottom:1px solid var(--line);color:var(--fg);font:500 15px/20px inherit;font-family:inherit;cursor:pointer}}
 .more:hover{{background:var(--tile)}}
 footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
-.card{{cursor:pointer}} .card.on{{border-color:var(--fg)}}
+.left-inner{{position:sticky;top:0;max-height:100vh;overflow-y:auto;scrollbar-width:none;width:240px;margin-left:auto;padding:16px 20px 16px 0;box-sizing:border-box}}
+.left-inner::-webkit-scrollbar{{display:none}} .left .logo{{flex-wrap:wrap;margin:4px 0 16px 12px}}
+.left .updated{{width:100%;margin:2px 0 0}}
+.tickers{{display:flex;flex-direction:column;gap:2px}}
+.card{{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:999px;font-size:15px;cursor:pointer;white-space:nowrap}}
+.card:hover{{background:var(--tile)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .picks{{border-bottom:2px solid var(--line)}} .picks li:last-child{{border-bottom:0}} .why{{color:var(--fg);font-weight:500}}
 .card b{{font-weight:700}} .card .dir{{font-weight:600}} .card i{{width:6px;height:6px;border-radius:50%;background:var(--flip)}}
-.nav{{position:absolute;top:0;bottom:0;width:48px;border:0;font-size:22px;color:var(--fg);cursor:pointer;opacity:0;transition:opacity .15s}}
-.nav.prev{{left:0;background:linear-gradient(to right,var(--bg) 40%,transparent);text-align:left}}
-.nav.next{{right:0;background:linear-gradient(to left,var(--bg) 40%,transparent);text-align:right}}
-.strip:hover .nav:not([hidden]){{opacity:1}} .nav[hidden]{{display:none}}
+@media (max-width:1000px){{.layout{{grid-template-columns:minmax(0,1fr)}} .layout .left{{min-width:0}} .left-inner{{position:static;width:auto;max-height:none;margin:0;padding:16px 16px 0}}
+  .tickers{{flex-direction:row;overflow-x:auto;scrollbar-width:none}} .card b{{margin-right:0}}}}
 </style>
-<div class="layout"><aside class="left"></aside><main>
+<div class="layout"><aside class="left"><div class="left-inner">
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
 {assets_section(rows)}
+</div></aside><main>
 {picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
 <div id="calls" role="tabpanel">{paged(calls)}</div>
@@ -323,12 +322,6 @@ document.querySelectorAll('.card').forEach(card => card.onclick = card.onkeydown
   document.querySelectorAll('li[data-asset]').forEach(li => li.hidden = only !== null && li.dataset.asset !== only);
   document.body.classList.toggle('filtering', only !== null);  // a filtered view shows every match, unpaged
 }});
-const c = document.querySelector('.cards'), prev = document.querySelector('.prev'), next = document.querySelector('.next');
-const sync = () => {{ prev.hidden = c.scrollLeft <= 0; next.hidden = c.scrollLeft + c.clientWidth >= c.scrollWidth - 1; }};
-prev.onclick = () => c.scrollBy({{left: -c.clientWidth * 0.8}});
-next.onclick = () => c.scrollBy({{left: c.clientWidth * 0.8}});
-c.parentElement.addEventListener('wheel', ev => {{ if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) {{ c.scrollLeft += ev.deltaY; ev.preventDefault(); }} }}, {{passive: false}});
-c.addEventListener('scroll', sync); addEventListener('resize', sync); sync();
 </script>
 """
 
