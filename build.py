@@ -192,7 +192,7 @@ def emerging_section(con, now):
         blocks.append(f'<details><summary><b>{e(t["theme"])}</b>{tag}<span class="meta">{t["posts"]} post{"s" * (t["posts"] != 1)} · '
                       f'{t["accounts"]} account{"s" * (t["accounts"] != 1)}</span>'
                       f'{f"<div class=pitch>{e(pitch[0])}</div>" if pitch else ""}</summary><ul>{lis}</ul></details>')
-    return f'<div class="label">Emerging</div><div class="emerging">{"".join(blocks)}</div>'
+    return f'<div class="card-box"><h2>Emerging</h2><div class="emerging">{"".join(blocks)}</div></div>'
 
 
 def spend(con, now):
@@ -246,7 +246,16 @@ def page(rows, spend_html="", emerging_html=""):
 :root{{--bg:#fff;--fg:#0f1419;--mute:#536471;--line:#eff3f4;--tile:#f7f9f9;--up:#00ba7c;--down:#f4212e;--flip:var(--fg);--hi:#b8860b;--md:#c08a3e}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#000;--fg:#e7e9ea;--mute:#71767b;--line:#2f3336;--tile:#16181c;--hi:#ffd400}}}}
 body{{background:var(--bg);color:var(--fg);font:400 15px/20px TwitterChirp,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  -webkit-font-smoothing:antialiased;max-width:600px;margin:0 auto;padding:16px}}
+  -webkit-font-smoothing:antialiased;margin:0}}
+/* X-style 3 columns: empty left rail, 600px main column, 350px right sidebar; stacks on narrow screens */
+.layout{{display:grid;grid-template-columns:minmax(0,1fr) 600px minmax(0,1fr);min-height:100vh}}
+.layout main{{border-left:1px solid var(--line);border-right:1px solid var(--line);padding:16px;min-width:0}}
+.layout .right{{padding:16px 0 16px 30px}} .right-inner{{position:sticky;top:16px;max-width:350px}}
+.card-box{{border:1px solid var(--line);border-radius:16px;padding:12px 16px}}
+.card-box h2{{font-size:20px;line-height:24px;font-weight:800;margin:0 0 4px;color:var(--fg)}}
+.card-box .emerging details:last-child{{border-bottom:0}}
+@media (max-width:1000px){{.layout{{grid-template-columns:1fr;max-width:600px;margin:0 auto}} .layout .left{{display:none}}
+  .layout main{{border:0}} .layout .right{{padding:0 16px 16px}} .right-inner{{position:static;max-width:none}}}}
 .tabs{{display:flex;margin-top:16px}}
 .tabs button{{flex:1;background:none;border:0;border-bottom:2px solid var(--line);padding:16px 0;font:500 15px/20px inherit;font-family:inherit;color:var(--mute);cursor:pointer}}
 .tabs button[aria-selected=true]{{color:var(--fg);font-weight:700;border-bottom-color:var(--fg)}}
@@ -265,7 +274,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .cards{{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}} .cards::-webkit-scrollbar{{display:none}}
 .card{{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--tile);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:14px;white-space:nowrap}}
 .emerging details{{border-bottom:1px solid var(--line);padding:10px 0}} .emerging summary{{cursor:pointer}}
-.emerging summary .meta{{display:inline;margin-left:8px}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
+.emerging summary .meta{{display:inline-block;margin-left:8px;white-space:nowrap}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
 .emerging .pitch{{font-size:14px;margin-top:2px}} .emerging ul{{margin-top:4px}} .emerging li{{padding:8px 0 8px 12px;border-bottom:0;font-size:14px}}
 li.later{{display:none}} .filtering li.later{{display:list-item}} .filtering .more{{display:none}}
 .more{{display:block;width:100%;padding:14px 0;background:none;border:0;border-bottom:1px solid var(--line);color:var(--fg);font:500 15px/20px inherit;font-family:inherit;cursor:pointer}}
@@ -280,14 +289,15 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .nav.next{{right:0;background:linear-gradient(to left,var(--bg) 40%,transparent);text-align:right}}
 .strip:hover .nav:not([hidden]){{opacity:1}} .nav[hidden]{{display:none}}
 </style>
+<div class="layout"><aside class="left"></aside><main>
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
 {assets_section(rows)}
 {picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}
-{emerging_html}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
 <div id="calls" role="tabpanel">{paged(calls)}</div>
 <div id="onchain" role="tabpanel">{paged(chain)}</div>
 {spend_html}
+</main><aside class="right"><div class="right-inner">{emerging_html}</div></aside></div>
 <script>
 const tabs = document.querySelectorAll('.tabs button');
 const show = name => tabs.forEach(t => {{
