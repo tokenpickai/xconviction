@@ -150,7 +150,7 @@ def picks_section(rows, now, votes):
         why = "".join(f'<span class="why">{x}</span> · ' for x in reasons)
         out.append(item(r, why=why))
     body = "".join(out) or '<li class="meta">No strong calls in the last 24 hours.</li>'
-    return f'<div class="label">Act now</div><ul class="picks">{body}</ul>'
+    return f'<ul class="picks">{body}</ul>'
 
 
 def emerging(con, now, days=3, n=10):
@@ -282,7 +282,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .card{{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:999px;font-size:15px;cursor:pointer;white-space:nowrap}}
 .card:hover{{background:var(--tile)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
-.picks{{border-bottom:2px solid var(--line)}} .picks li:last-child{{border-bottom:0}} .why{{color:var(--fg);font-weight:500}}
+.why{{color:var(--fg);font-weight:500}}
 .card b{{font-weight:700}} .card .dir{{font-weight:600}} .card i{{width:6px;height:6px;border-radius:50%;background:var(--flip)}}
 @media (max-width:1000px){{.layout{{grid-template-columns:minmax(0,1fr)}} .layout .left{{min-width:0}} .left-inner{{position:static;width:auto;max-height:none;margin:0;padding:16px 16px 0}}
   .tickers{{flex-direction:row;overflow-x:auto;scrollbar-width:none}} .card b{{margin-right:0}}}}
@@ -291,8 +291,8 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction<span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span></div>
 {assets_section(rows)}
 </div></aside><main>
-{picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}
-<div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
+<div class="tabs" role="tablist"><button role="tab" data-tab="actnow">Act now</button><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
+<div id="actnow" role="tabpanel">{picks_section(rows, datetime.now(timezone.utc), {a: (u, d) for a, u, d, _ in consensus(rows, (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"))})}</div>
 <div id="calls" role="tabpanel">{paged(calls)}</div>
 <div id="onchain" role="tabpanel">{paged(chain)}</div>
 {spend_html}
@@ -304,9 +304,8 @@ const show = name => tabs.forEach(t => {{
   t.setAttribute('aria-selected', on);
   document.getElementById(t.dataset.tab).hidden = !on;
 }});
-tabs.forEach(t => t.onclick = () => {{ show(t.dataset.tab); try {{ localStorage.tab = t.dataset.tab; }} catch (_) {{}} }});
-let saved; try {{ saved = localStorage.tab; }} catch (_) {{}}
-show(saved === 'onchain' ? 'onchain' : 'calls');
+tabs.forEach(t => t.onclick = () => show(t.dataset.tab));
+show('actnow');  // always open on Act now
 const u = document.querySelector('.updated'), mins = Math.round((Date.now() - new Date(u.dataset.t)) / 60000);
 u.textContent = 'updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
 document.querySelectorAll('.more').forEach(b => b.onclick = () => {{
