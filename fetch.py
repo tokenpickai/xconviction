@@ -78,7 +78,7 @@ def kind(t, uid):
     return "post"
 
 
-def fetch(con, handle, tok, days):
+def fetch(con, handle, tok, days, max_posts=None):
     # recent search (7-day window) instead of the user timeline: the timeline endpoint
     # returned truncated/empty pages inconsistently; search returned the full set every time
     last = con.execute("select max(id) from posts where handle=?", (handle,)).fetchone()[0]
@@ -89,7 +89,17 @@ def fetch(con, handle, tok, days):
     else:
         start = datetime.now(timezone.utc) - timedelta(days=days or 3)
         params["start_time"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
-    n = 0
+    counter = [0]
+    try:
+        _pages(con, handle, tok, params, max_posts, counter)
+    finally:  # record what was read even if X stops us part-way (e.g. credits run out)
+        log_usage(con, "x_posts", counter[0], counter[0] * X_POST_USD)
+    # commit only after a complete fetch: a partial one would move since_id past posts we never got
+    con.commit()
+    print(f"@{handle}: {counter[0]} posts")
+
+
+def _pages(con, handle, tok, params, max_posts, counter):
     while True:
         page = get("/tweets/search/recent", params, tok)
         for t in page.get("data", []):
@@ -97,15 +107,12 @@ def fetch(con, handle, tok, days):
             con.execute("insert or replace into posts values(?,?,?,?,?,?,?,?)", (
                 t["id"], handle, t["created_at"], text, kind(t, t["author_id"]),
                 t.get("conversation_id"), json.dumps(t.get("public_metrics")), json.dumps(t)))
-            n += 1
+            counter[0] += 1
         nxt = page.get("meta", {}).get("next_token")
-        if not nxt:
+        if not nxt or (max_posts and counter[0] >= max_posts):
             break
         params["next_token"] = nxt
         time.sleep(1)
-    log_usage(con, "x_posts", n, n * X_POST_USD)
-    con.commit()
-    print(f"@{handle}: {n} posts")
 
 
 if __name__ == "__main__":

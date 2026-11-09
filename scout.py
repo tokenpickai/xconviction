@@ -6,7 +6,7 @@ Writes scout-report.md when it did something, for the workflow to post as a GitH
 
     .venv/bin/python scout.py --now
 """
-import json, sqlite3, sys, time
+import json, sqlite3, sys, time, urllib.error
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,7 +15,8 @@ import anthropic
 import check, extract, fetch, prices
 
 ROOT = Path(__file__).parent
-MAX_TRIALS = 5   # ~$0.20-0.40 each in X reads + Claude
+MAX_TRIALS = 3     # each trial reads at most TRIAL_POSTS posts: <= ~$1 X + ~$0.30 Claude
+TRIAL_POSTS = 200  # cap so one prolific candidate can't drain X credits (an uncapped run did on Nov 9)
 RETRY_DAYS = 30  # don't re-trial a rejected handle for a month
 # ponytail: hand-set bars, from the first dozen accounts; tune as the scout's track record grows
 MIN_POSTS, MIN_ITEMS, MIN_YIELD = 10, 3, 0.10
@@ -134,7 +135,13 @@ def main(now, force=False):
     for u, mentioners, mentions in candidates(con, tracked, skip, now)[:MAX_TRIALS]:
         trial = fetch.db(":memory:")
         extract.db(trial)
-        fetch.fetch(trial, u, fetch.token(), 7)  # the most X search allows, so early calls can be scored
+        try:
+            fetch.fetch(trial, u, fetch.token(), 7, TRIAL_POSTS)  # 7 days is X search's max, so early calls can be scored
+        except urllib.error.HTTPError as err:
+            con.executemany("insert into usage values(?,?,?,?)", trial.execute("select * from usage").fetchall())
+            lines.append(f"- ⚠️ stopped scouting at @{u}: X returned {err.code}"
+                         + (" (out of X credits)" if err.code == 402 else ""))
+            break
         extract.process(trial, client)
         # count the trial's spend in the real usage log, so the footer stays honest
         con.executemany("insert into usage values(?,?,?,?)", trial.execute("select * from usage").fetchall())
@@ -151,6 +158,7 @@ def main(now, force=False):
                      + "".join(f"\n  - {w} {a} {d}: {s}" for w, a, d, s in sample))
         if ok:
             added.append(u)
+        con.commit()  # keep each finished trial even if a later one fails
 
     for name in handles:  # KOL scorecard; drop only on a full-horizon sample big enough to trust
         if not is_kol(con, name):
