@@ -65,6 +65,12 @@ def speaker(r):
     return re.sub(r"[^\w .'-]", "", r["name"]).strip() or r["handle"]
 
 
+def when(iso):
+    """<time> showing the Vancouver date; the page script swaps in "2h ago", keeping the date as the hover text."""
+    utc = iso.replace(".000Z", "Z")
+    return f'<time datetime="{utc}" title="{local_time(iso)}">{local_time(iso)}</time>'
+
+
 def local_time(iso):
     t = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(ZoneInfo("America/Vancouver"))
     return f"{t:%b} {t.day}, {t.hour % 12 or 12}:{t:%M} {t:%p}"
@@ -80,7 +86,7 @@ def item(r, show_asset=True, why=None):
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
     return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} {act}'
             f'<span class="wt">{r["weight"]}</span>{flip}{snap} {pic}<b>{e(speaker(r))}:</b> {e(r["summary"])}'
-            f'<div class="meta">{why or ""}{local_time(r["created_at"])} · {move(r)}'
+            f'<div class="meta">{why or ""}{when(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
@@ -185,7 +191,7 @@ def emerging_section(con, now):
         lis = "".join(
             f'<li>{f"<img class=av src=avatars/{e(h)}.jpg alt>" if h in pics else ""}'
             f'<b>{e(speaker(dict(name=names.get(h, ""), handle=h)))}:</b> {e(text[:180])}{"…" if len(text) > 180 else ""}'
-            f'<div class="meta">{local_time(at)} · <a href="https://x.com/{e(h)}/status/{pid}">post</a></div></li>'
+            f'<div class="meta">{when(at)} · <a href="https://x.com/{e(h)}/status/{pid}">post</a></div></li>'
             for pid, h, at, text in posts)
         tag = '<span class="wt new">new</span>' if t["new"] else ""
         pitch = con.execute("""select pitch from themes where theme = ? and pitch is not null
@@ -317,8 +323,13 @@ const show = name => tabs.forEach(t => {{
 }});
 tabs.forEach(t => t.onclick = () => show(t.dataset.tab));
 show('calls');
-const u = document.querySelector('.updated'), mins = Math.round((Date.now() - new Date(u.dataset.t)) / 60000);
-u.textContent = 'Updated ' + (mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' hr') + ' ago';
+const ago = t => {{
+  const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
+  return m < 1 ? 'just now' : m < 60 ? m + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago';
+}};
+document.querySelectorAll('time[datetime]').forEach(el => el.textContent = ago(el.getAttribute('datetime')));
+const u = document.querySelector('.updated');
+u.textContent = 'Updated ' + ago(u.dataset.t);
 document.querySelectorAll('.more').forEach(b => b.onclick = () => {{
   const later = b.previousElementSibling.querySelectorAll('li.later');
   [...later].slice(0, {PAGE}).forEach(li => li.classList.remove('later'));
