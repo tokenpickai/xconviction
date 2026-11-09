@@ -7,3 +7,5 @@ OnchainLens
 DefiIgnas
 AltcoinSherpa
 EmberCN
+CryptoKaleo
+kale_abe
