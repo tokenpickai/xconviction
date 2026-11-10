@@ -44,18 +44,17 @@ con.executemany("insert into usage values(?,?,?,?)", [
     ("2026-11-08T01:00:00Z", "x_users", 7, 0.07), ("2026-11-08T02:00:00Z", "x_users", 7, 0.07),
     ("2026-11-08T02:00:00Z", "x_posts", 10, 0.05), ("2026-11-08T02:00:00Z", "claude_tokens", 1000, 0.03)])
 assert "$0.15 last 24h" in spend(con, now), spend(con, now)
-# emerging: a theme 2 accounts picked up ranks first; a lone mention only counts while brand-new; new = first seen in 48h
+# emerging: only themes 2+ accounts pitched this week; one account's repeats never make the card; new = first seen in 48h
 con.execute("create table themes(post_id text, handle text, created_at text, theme text)")
 con.executemany("insert into themes values(?,?,?,?)", [
     ("1", "a", "2026-11-08T10:00:00Z", "Elysium"), ("2", "b", "2026-11-08T11:00:00Z", "Elysium"),
     ("3", "a", "2026-11-07T10:00:00Z", "Privacy"), ("4", "a", "2026-11-07T11:00:00Z", "Privacy"),
-    ("5", "a", "2026-10-20T10:00:00Z", "Privacy"), ("6", "c", "2026-11-08T09:00:00Z", "Once")])
+    ("5", "a", "2026-10-20T10:00:00Z", "Privacy"), ("6", "c", "2026-11-08T09:00:00Z", "Once"),
+    ("7", "k", "2026-11-08T08:00:00Z", "ZCAT"), ("8", "k", "2026-11-08T08:30:00Z", "ZCAT"), ("9", "k", "2026-11-08T09:00:00Z", "ZCAT")])
 got = emerging(con, now)
-assert [(t["theme"], t["new"]) for t in got] == [("Elysium", True), ("Once", True), ("Privacy", False)], got
-# a new single-account theme still makes the list
-con.executemany("insert into themes values(?,?,?,?)", [("7", "a", "2026-11-08T08:00:00Z", "Solo"), ("8", "a", "2026-11-08T08:30:00Z", "Solo"),
-    ("9", "b", "2026-11-07T08:00:00Z", "Privacy"), ("10", "b", "2026-10-01T08:00:00Z", "Privacy")])
-assert "Solo" in [t["theme"] for t in emerging(con, now)]
+assert [(t["theme"], t["new"]) for t in got] == [("Elysium", True)], got
+con.execute("insert into themes values('10', 'b', '2026-11-07T08:00:00Z', 'Privacy')")
+assert [t["theme"] for t in emerging(con, now)] == ["Elysium", "Privacy"]
 # a flip stays flagged after the account repeats its new view
 assert consensus([r("a", "call", "bullish"), r("a", "call", "bearish", flip=True), r("a", "call", "bearish")], "2026-11-01") == [("BTC", 0, 1, True)]
 # order: more accounts first, then more posts, so a contested coin everyone talks about isn't buried

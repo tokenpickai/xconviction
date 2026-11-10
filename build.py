@@ -306,31 +306,19 @@ def pick_reasons(rows, now, votes):
     return out
 
 
-def emerging(con, now, days=3, n=10):
-    """Themes getting talked about lately: at least 2 posts or 2 accounts in the last `days`,
-    ranked by accounts, posts and newness. new = first ever seen in the last 48h."""
+def emerging(con, now, days=7, n=10):
+    """Narratives: themes at least 2 different accounts pitched in the last `days`. One person repeating a pitch
+    (however often) isn't a narrative, so single-account themes stay in the feed, not here. Ranked by accounts,
+    then posts (capped so volume can't beat breadth). new = first seen in the last 48h."""
     cut = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
     fresh = (now - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%S")
     first = dict(con.execute("select theme, min(created_at) from themes group by theme"))
-    out = []
-    for theme, posts, accounts, latest, who in con.execute("""select theme, count(distinct post_id), count(distinct handle),
-            max(created_at), min(handle) from themes where created_at >= ? group by theme""", (cut,)):
-        if posts >= 2 or accounts >= 2 or first[theme] >= fresh:  # a brand-new pitch counts even once
-            out.append(dict(theme=theme, posts=posts, accounts=accounts, latest=latest, new=first[theme] >= fresh, who=who))
+    out = [dict(theme=t, posts=p, accounts=a, latest=l, new=first[t] >= fresh)
+           for t, p, a, l in con.execute("""select theme, count(distinct post_id), count(distinct handle), max(created_at)
+               from themes where created_at >= ? group by theme having count(distinct handle) >= 2""", (cut,))]
     out.sort(key=lambda t: t["latest"], reverse=True)  # newest first among ties
-    # ponytail: hand-set score; breadth beats volume (posts capped at 5 so one chatty account can't top it),
-    # brand-new gets a bump. Tune with more history.
-    # a lone account's repeats count for little: its posts cap at 2, a shared theme's at 5
-    out.sort(key=lambda t: -(3 * t["accounts"] + min(t["posts"], 5 if t["accounts"] > 1 else 2) + 3 * t["new"]))
-    # a theme only one account talks about takes at most one slot per account, so one shiller can't fill the card
-    seen, kept = set(), []
-    for t in out:
-        if t["accounts"] == 1:
-            if t["who"] in seen:
-                continue
-            seen.add(t["who"])
-        kept.append(t)
-    return kept[:n]
+    out.sort(key=lambda t: -(3 * t["accounts"] + min(t["posts"], 5) + 3 * t["new"]))
+    return out[:n]
 
 
 def candidates(con, now):
@@ -571,7 +559,7 @@ ul{{list-style:none;padding:0;margin:0}} li{{padding:12px 0;border-bottom:1px so
 .flip{{color:var(--bg);background:var(--fg);border-color:var(--fg)}}
 .logo{{display:flex;align-items:center;font:800 20px/24px Archivo,sans-serif;letter-spacing:-.4px;margin:4px 0 16px}}
 
-.logo svg{{width:17px;height:17px;fill:var(--fg);margin-right:1px}}
+.logo{{cursor:pointer}} .logo svg{{width:17px;height:17px;fill:var(--fg);margin-right:1px}}
 .emerging details{{border-bottom:1px solid var(--line);padding:10px 0}} .emerging summary{{cursor:pointer}}
 .emerging summary .meta{{display:inline-block;margin-left:8px;white-space:nowrap}} .emerging .new{{color:var(--up);border-color:var(--up);margin-left:6px}}
 .emerging .pitch{{font-size:14px;margin-top:2px}} .emerging ul{{margin-top:4px}} .emerging li{{padding:8px 0 8px 12px;border-bottom:0;font-size:14px}}
@@ -606,7 +594,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
   .tickers{{flex-direction:row;overflow-x:auto;scrollbar-width:none}} .card b{{margin-right:0}}}}
 </style>
 <div class="layout"><aside class="left"><div class="left-inner">
-<div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
+<div class="logo" role="link" tabindex="0" title="Back to the full feed"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
 {regime_line(rows, trend, datetime.now(timezone.utc)) if trend else ""}
 {assets_section(rows, trend)}
 </div></aside><main>
@@ -646,6 +634,10 @@ document.querySelectorAll('.mk, .hovertip').forEach(m => {{
   m.onmouseleave = () => tip.hidden = true;
 }});
 let only = null;
+document.querySelector('.logo').onclick = () => {{  // home: clear the coin filter, back to Calls, top of page
+  if (only !== null) document.querySelector(`.card[data-asset="${{only}}"]`).click();
+  show('calls'); scrollTo({{top: 0}});
+}};
 document.querySelectorAll('.card').forEach(card => card.onclick = card.onkeydown = ev => {{
   if (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ') return;
   only = only === card.dataset.asset ? null : card.dataset.asset;
