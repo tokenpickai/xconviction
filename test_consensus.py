@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import sqlite3
 
-from build import chart, resize, collapse, consensus, emerging, local_time, picks, speaker, spend, stances, win_rates
+from build import log_picks, score_picks, scorecard, chart, resize, collapse, consensus, emerging, local_time, picks, speaker, spend, stances, win_rates
 
 
 def r(handle, kind, direction, weight="high", t="2026-11-06", flip=False):
@@ -24,19 +24,19 @@ assert local_time("2026-11-06T02:22:57.000Z") == "Nov 5, 7:22 PM"  # BC stays on
 assert local_time("2026-07-01T12:05:00.000Z") == "Jul 1, 5:05 AM"
 assert speaker({"name": "Ansem 🐂🀄️", "handle": "blknoiz06"}) == "Ansem"
 assert speaker({"name": "🐧", "handle": "Pentosh1"}) == "Pentosh1"
-# picks: a fresh call beats a stale one, a call the price already ran with drops out, low weight never shows
+# picks: proven callers qualify (fresh beats stale, a call the price already ran with drops out, low never shows)
 now = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
-def c(asset, w, t, p0=None, p1=None, d="bullish", kind="call"):
-    return dict(asset=asset, weight=w, created_at=t, p0=p0, p1=p1, direction=d, kind=kind)
+PRO = (7, 10)  # a caller with a 70% record over 10 stances
+def c(asset, w, t, p0=None, p1=None, d="bullish", kind="call", wr=PRO):
+    return dict(asset=asset, weight=w, created_at=t, p0=p0, p1=p1, direction=d, kind=kind, wr=wr)
 got = picks([c("OLD", "high", "2026-11-07T14:00:00Z"), c("NEW", "high", "2026-11-08T11:00:00Z"),
              c("RAN", "high", "2026-11-08T11:00:00Z", 100, 115), c("LOW", "low", "2026-11-08T11:00:00Z")], now, {})
 assert [r["asset"] for r, _, _ in got] == ["NEW", "OLD"], got
+# unproven or losing KOLs never qualify, however loud
+assert picks([c("A", "high", "2026-11-08T11:00:00Z", wr=(0, 0)), c("B", "high", "2026-11-08T11:00:00Z", wr=(3, 10))], now, {}) == []
 # agreement lifts a medium call above a lone high one of the same age
 got = picks([c("A", "high", "2026-11-08T11:00:00Z"), c("B", "medium", "2026-11-08T11:00:00Z")], now, {"B": (3, 0)})
 assert got[0][0]["asset"] == "B"
-# a position snapshot ranks below a fresh move of the same weight
-got = picks([dict(c("SNAP", "high", "2026-11-08T11:00:00Z"), snapshot=1), c("MOVE", "high", "2026-11-08T11:00:00Z")], now, {})
-assert [r["asset"] for r, _, _ in got] == ["MOVE", "SNAP"]
 # spend: user lookups count once per UTC day, everything else adds up
 con = sqlite3.connect(":memory:")
 con.execute("create table usage(at text, item text, units integer, usd real)")
@@ -62,8 +62,9 @@ assert consensus([r("a", "call", "bullish"), r("a", "call", "bearish", flip=True
 def v(a, h, d): return dict(handle=h, asset=a, kind="call", direction=d, weight="high", created_at="2026-11-06", flip=False)
 got = consensus([v("ZEC", "a", "bullish"), v("ZEC", "b", "bearish"), v("ZEC", "b", "bearish"), v("WLD", "c", "bearish")], "2026-11-01")
 assert [t[0] for t in got] == ["ZEC", "WLD"], got
-# on-chain items never headline, and a lone medium call doesn't qualify
-assert picks([c("ETH", "high", "2026-11-08T11:00:00Z", kind="onchain"), c("SOL", "medium", "2026-11-08T11:00:00Z")], now, {}) == []
+# on-chain: a high (big vs volume) move qualifies; medium only from a proven trader; standing positions never
+got = picks([c("ETH", "high", "2026-11-08T11:00:00Z", kind="onchain", wr=None), c("SOL", "medium", "2026-11-08T11:00:00Z", kind="onchain", wr=None)], now, {})
+assert [r["asset"] for r, _, _ in got] == ["ETH"], got
 # a fresh move by a proven trader can headline; the same trader's standing position can't
 got = picks([dict(c("ETH", "medium", "2026-11-08T11:00:00Z", kind="onchain"), proven=1),
              dict(c("BTC", "high", "2026-11-08T11:00:00Z", kind="onchain"), proven=1, snapshot=1)], now, {})
@@ -89,4 +90,15 @@ assert resize(r2 := dict(usd=20e6), 100e6) == 0.2 and r2["weight"] == "high"
 svg = chart("ZEC", [[1762300000000, 1300], [1762900000000, 1170]], [dict(asset="ZEC", created_at="2025-11-08T00:00:00Z", p0=1250,
     direction="bullish", kind="call", weight="high", summary="s", handle="k", name="K", avatar=True)])
 assert svg.count('class="mk bullish"') == 1 and "avatars/k.jpg" in svg and 'class="axis"' in svg
+# act now log: picks are logged once, scored 72h later vs BTC, and summarised
+lg = sqlite3.connect(":memory:")
+lg.executescript("create table coins(symbol, price); create table series(symbol, data);")
+lg.executemany("insert into coins values(?,?)", [("SOL", 100), ("BTC", 50000)])
+pick = dict(post_id="p", asset="SOL", direction="bullish", kind="onchain", handle="h")
+log_picks(lg, [(pick, 1, 0)], now); log_picks(lg, [(pick, 1, 0)], now)
+assert lg.execute("select count(*) from act_log").fetchone()[0] == 1
+assert "1 pick logged" in scorecard(lg)
+lg.executemany("update coins set price=? where symbol=?", [(110, "SOL"), (50000, "BTC")])
+score_picks(lg, now + timedelta(hours=73))
+assert "1/1" in scorecard(lg) and "+10.0%" in scorecard(lg), scorecard(lg)
 print("ok")

@@ -178,6 +178,7 @@ def item(r, show_asset=True, why=None):
 
 HORIZON_DAYS, EARLY_DAYS = 7, 3  # a stance is judged 7 days after it starts; 3+ days gives an early read
 MIN_SCORED = 5                   # show a win rate / let it move rankings only from 5 scored stances
+PROVEN_STANCES, PROVEN_RATE = 10, 0.55  # a KOL's calls reach Act now only with this record
 
 
 def stances(calls):
@@ -253,29 +254,33 @@ def consensus(rows, cutoff):
 
 
 def picks(rows, now, votes, n=3):
-    """Act now: the strongest calls of the last 24h that the price hasn't already run with.
+    """Act now: the strongest evidence-backed items of the last 24h that the price hasn't already run with.
+    Qualifies (backed by the Nov 3-10 backtest, where loud KOL calls lost and big on-chain moves won):
+      - on-chain moves rated high (>= 5% of the coin's daily volume) that aren't standing positions
+      - fresh moves by proven traders (medium or high)
+      - KOL calls (medium or high) only from accounts with a proven record: 55%+ over 10+ scored stances
     votes = {asset: (up, down)} from consensus."""
-    # ponytail: hand-set heuristic (weight x agreement x freshness x room left); tune once there's a week of data
+    # ponytail: hand-set heuristic (weight x track x agreement x freshness x room left); the Act now scorecard tunes it
     cutoff = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
     best = {}
     for r in rows:
-        # headline picks: calls from the accounts you follow, or a fresh move by a trader with a proven record.
-        # other on-chain data only counts as agreement. high qualifies alone, medium needs a second account.
-        smart = r["kind"] == "onchain" and r.get("proven") and not r.get("snapshot")
-        if r["created_at"] < cutoff or r["weight"] == "low" or not (r["kind"] == "call" or smart):
+        if r["created_at"] < cutoff or r["weight"] == "low" or r.get("snapshot"):
+            continue
+        won, scored = r.get("wr") or (0, 0)
+        if r["kind"] == "onchain":
+            ok = r["weight"] == "high" or r.get("proven")
+        else:
+            ok = scored >= PROVEN_STANCES and won / scored >= PROVEN_RATE
+        if not ok:
             continue
         up, down = votes.get(r["asset"], (0, 0))
         agree = max(1, up if r["direction"] == "bullish" else down)
-        if r["weight"] == "medium" and agree < 2 and not smart:
-            continue
         moved = 0.0  # % the price already moved in the call's direction
         if r["p0"] and r["p1"]:
             moved = 100 * (r["p1"] / r["p0"] - 1) * (1 if r["direction"] == "bullish" else -1)
         age_h = (now - datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))).total_seconds() / 3600
-        # a standing position is context, not news: rank it well below fresh moves
-        won, scored = r.get("wr") or (0, 0)
-        track = 0.5 + won / scored if scored >= MIN_SCORED else 1  # proven callers rise (up to x1.5), poor ones sink (down to x0.5)
-        score = track * W[r["weight"]] * (0.25 if r.get("snapshot") else 1) * (1 + 0.5 * (agree - 1)) * max(0, 1 - max(0, moved) / 10) * max(0, 1 - age_h / 48)
+        track = 0.5 + won / scored if scored >= MIN_SCORED else 1  # better callers rank higher (x0.5 to x1.5)
+        score = track * W[r["weight"]] * (1 + 0.5 * (agree - 1)) * max(0, 1 - max(0, moved) / 10) * max(0, 1 - age_h / 48)
         key = (r["asset"], r["direction"])
         if score > 0 and score > best.get(key, (0,))[0]:
             best[key] = (score, r, agree, moved)
@@ -286,7 +291,9 @@ def pick_reasons(rows, now, votes):
     """{(post_id, asset): reason html} for the Act now picks, in rank order."""
     out = {}
     for r, agree, moved in picks(rows, now, votes):
+        won, scored = r.get("wr") or (0, 0)
         reasons = ["proven trader"] if r.get("proven") else []
+        reasons += [f"caller {won}/{scored} vs BTC"] if r["kind"] == "call" and scored else []
         reasons += [f"{agree} accounts agree"] if agree > 1 else []
         if r["p0"] and r["p1"]:
             reasons.append("price hasn't moved yet" if abs(moved) < 1 else
@@ -417,7 +424,7 @@ def paged(rows, whys={}):
     return f'<ul class="paged">{lis}</ul>{more}'
 
 
-def page(rows, spend_html="", emerging_html="", charts_html=""):
+def page(rows, spend_html="", emerging_html="", charts_html="", record_html=""):
     # the feed covers the same 7 days as the consensus; older items stay in the database
     week = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     now = datetime.now(timezone.utc)
@@ -479,6 +486,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .tip{{position:fixed;z-index:10;max-width:300px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line);
   box-shadow:0 4px 16px rgba(0,0,0,.35);font-size:13px;line-height:17px;pointer-events:none}} .tip b{{display:block;margin-bottom:2px}}
 .chart-head .meta{{display:inline;margin-left:6px}}
+.record{{padding:12px 16px;font-size:13px;color:var(--mute);border-bottom:1px solid var(--line)}} .record b{{color:var(--fg)}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .why{{color:var(--fg);font-weight:500}}
 .wr{{font-size:12px;font-weight:500;color:var(--mute)}} .wr.good{{color:var(--up)}} .wr.bad{{color:var(--down)}}
@@ -492,6 +500,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 {assets_section(rows)}
 </div></aside><main>
 {charts_html}
+{record_html}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
 <div id="calls" role="tabpanel">{paged(pinned(calls, whys), whys)}</div>
 <div id="onchain" role="tabpanel">{paged(pinned(chain, whys), whys)}</div>
@@ -538,9 +547,57 @@ document.querySelectorAll('.card').forEach(card => card.onclick = card.onkeydown
 """
 
 
+LOOKBACK_H = 72  # Act now picks are judged 72 hours after they were shown
+
+
+def log_picks(con, picked, now):
+    """Record each Act now pick the first time it's shown, with the coin's and BTC's price at that moment."""
+    con.execute("""create table if not exists act_log(post_id text, asset text, direction text, kind text, handle text,
+        picked_at text, p0 real, b0 real, p72 real, b72 real, primary key(post_id, asset))""")
+    price = dict(con.execute("select symbol, price from coins"))
+    for r, _, _ in picked:
+        if r["asset"] in price and "BTC" in price:
+            con.execute("insert or ignore into act_log values(?,?,?,?,?,?,?,?,null,null)", (r["post_id"], r["asset"],
+                        r["direction"], r["kind"], r["handle"], now.strftime("%Y-%m-%dT%H:%M:%SZ"), price[r["asset"]], price["BTC"]))
+
+
+def score_picks(con, now):
+    """Fill the 72h-later prices for logged picks, from stored price series or (just after 72h) the latest price."""
+    price = dict(con.execute("select symbol, price from coins"))
+    series = {a: json.loads(d) for a, d in con.execute("select symbol, data from series")}
+    at = lambda a, t: (min(series[a], key=lambda p: abs(p[0] / 1000 - t))[1]
+                       if a in series and abs(series[a][-1][0] / 1000 - t) < 7 * 86400 and series[a][0][0] / 1000 <= t + 3600
+                       else price.get(a) if 0 <= now.timestamp() - t < 3 * 3600 else None)
+    for pid, a, picked in con.execute("select post_id, asset, picked_at from act_log where p72 is null").fetchall():
+        t = ts(picked) + LOOKBACK_H * 3600
+        if t <= now.timestamp():
+            p, b = at(a, t), at("BTC", t)
+            if p and b:
+                con.execute("update act_log set p72=?, b72=? where post_id=? and asset=?", (p, b, pid, a))
+    con.commit()
+
+
+def scorecard(con):
+    """One line: how Act now picks did 72h later against BTC. This is the number to trust Act now by."""
+    rows = con.execute("select asset, direction, p0, b0, p72, b72 from act_log").fetchall()
+    done = [r for r in rows if r[4]]
+    if not done:
+        return (f'<div class="record">Act now record: {len(rows)} pick{"s" * (len(rows) != 1)} logged, '
+                f'first results {LOOKBACK_H}h after each pick. Treat Act now as unproven until this fills in.</div>')
+    rel = [(p72 / p0 - 1 - (0 if a == "BTC" else b72 / b0 - 1)) * (1 if d == "bullish" else -1) for a, d, p0, b0, p72, b72 in done]
+    wins = sum(x > 0 for x in rel)
+    return (f'<div class="record">Act now record: <b>{wins}/{len(done)}</b> picks beat BTC {LOOKBACK_H}h later '
+            f'(<span class="dir {"bullish" if sum(rel) >= 0 else "bearish"}">avg {sum(rel) / len(rel):+.1%}</span>)'
+            f'{f" · {len(rows) - len(done)} pending" if len(rows) > len(done) else ""}</div>')
+
+
 if __name__ == "__main__":
     rows = load()
     (ROOT / "site").mkdir(exist_ok=True)
     con, now = fetch.db(), datetime.now(timezone.utc)
-    (ROOT / "site" / "index.html").write_text(page(rows, spend(con, now), emerging_section(con, now), charts_section(con, rows)))
+    week = (now - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+    log_picks(con, picks(rows, now, {a: (u, d) for a, u, d, _ in consensus(rows, week)}), now)
+    score_picks(con, now)
+    (ROOT / "site" / "index.html").write_text(page(rows, spend(con, now), emerging_section(con, now), charts_section(con, rows),
+                                                   scorecard(con)))
     print(f"site/index.html: {len(rows)} items")
