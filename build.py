@@ -680,6 +680,16 @@ def scorecard(con):
             f'{f" · {len(rows) - len(done)} pending" if len(rows) > len(done) else ""}</div>')
 
 
+def log_regime(con, rows, trend, now):
+    """One row per day: the market call and BTC/ETH/SOL prices, so the call can later be scored against holding."""
+    con.execute("create table if not exists regime_log(day text primary key, label text, btc real, eth real, sol real)")
+    if trend:
+        price = dict(con.execute("select symbol, price from coins"))
+        con.execute("insert or ignore into regime_log values(?,?,?,?,?)", (now.strftime("%Y-%m-%d"), regime(rows, trend, now)[0],
+                    price.get("BTC"), price.get("ETH"), price.get("SOL")))
+        con.commit()
+
+
 if __name__ == "__main__":
     rows = load()
     (ROOT / "site").mkdir(exist_ok=True)
@@ -687,6 +697,7 @@ if __name__ == "__main__":
     week = (now - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     log_picks(con, picks(rows, now, {a: (u, d) for a, u, d, _ in consensus(rows, week)}), now)
     score_picks(con, now)
+    log_regime(con, rows, trends(con), now)
     (ROOT / "site" / "index.html").write_text(page(rows, spend(con, now), emerging_section(con, now), charts_section(con, rows),
                                                    scorecard(con), trends(con)))
     print(f"site/index.html: {len(rows)} items")
