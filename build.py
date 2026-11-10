@@ -331,8 +331,28 @@ def emerging(con, now, days=3, n=10):
     return kept[:n]
 
 
+def candidates(con, now):
+    """Big-bet candidates: themes 3+ different accounts pitched in the last 7 days whose own coins are up 5%+ this week."""
+    week = (now - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+    up = {a: json.loads(d) for a, d in con.execute("select symbol, data from series")}
+    out = []
+    for theme, accounts, posts in con.execute("""select theme, count(distinct handle), count(distinct post_id) from themes
+            where created_at >= ? group by theme having count(distinct handle) >= 3""", (week,)).fetchall():
+        # the theme's own coins: called in at least 2 of its posts (a one-off list of picks doesn't make a coin the theme's)
+        coins = [a for a, n in con.execute("""select c.asset, count(distinct c.post_id) from themes t join calls c on c.post_id = t.post_id
+                where t.theme = ? and t.created_at >= ? and c.asset != 'CRYPTO' group by c.asset""", (theme, week)) if n >= 2]
+        rising = [a for a in coins if a in up and up[a][-1][1] / up[a][0][1] - 1 >= 0.05]  # up 5%+ on the week
+        if rising:
+            out.append((theme, accounts, posts, rising))
+    return out
+
+
 def emerging_section(con, now):
     themes = emerging(con, now)
+    cands = {t: (n, ps, coins) for t, n, ps, coins in candidates(con, now)}
+    known = {t["theme"] for t in themes}
+    themes = [dict(theme=t, posts=ps, accounts=n, new=False, latest="") for t, (n, ps, _) in cands.items() if t not in known] + themes
+    themes.sort(key=lambda t: t["theme"] not in cands)  # candidates pinned first
     if not themes:
         return ""
     names = dict(con.execute("select handle, name from accounts"))
@@ -351,6 +371,8 @@ def emerging_section(con, now):
             f'<div class="meta">{when(at)} · <a href="https://x.com/{e(h)}/status/{pid}">post</a></div></li>'
             for pid, h, at, text in posts)
         tag = '<span class="wt new">new</span>' if t["new"] else ""
+        if t["theme"] in cands:
+            tag = f'<span class="act">candidate</span>{tag}<span class="meta"> rising: {e(", ".join(cands[t["theme"]][2]))}</span>'
         pitch = con.execute("""select pitch from themes where theme = ? and pitch is not null
             order by created_at desc limit 1""", (t["theme"],)).fetchone()
         blocks.append(f'<details><summary><b>{e(t["theme"])}</b>{tag}<span class="meta">{t["posts"]} post{"s" * (t["posts"] != 1)} · '
@@ -377,11 +399,75 @@ def spend(con, now):
     return f'Est. spend: ${since(1):.2f} last 24h · ${week:.2f} last 7 days{pace}'
 
 
-def assets_section(rows):
+MAJORS = ("BTC", "ETH", "SOL", "BNB", "XRP")
+TREND_DAYS = 14
+
+
+def change(series, days):
+    """% change over the last `days` of an hourly [ms, price] series (None if it doesn't reach back that far)."""
+    t_end = series[-1][0] / 1000
+    if series[0][0] / 1000 > t_end - days * 86400 + 3600:
+        return None
+    then = min(series, key=lambda p: abs(p[0] / 1000 - (t_end - days * 86400)))[1]
+    return series[-1][1] / then - 1
+
+
+def trends(con):
+    """{asset: 2-week change} for BTC (in USD) and the other majors (vs BTC)."""
+    hist = {a: json.loads(d) for a, d in con.execute("select symbol, data from history")} if con.execute(
+        "select 1 from sqlite_master where name='history'").fetchone() else {}
+    out = {}
+    btc = change(hist["BTC"], TREND_DAYS) if "BTC" in hist else None
+    for a, series in hist.items():
+        c = change(series, TREND_DAYS)
+        if c is not None and btc is not None:
+            out[a] = btc if a == "BTC" else (1 + c) / (1 + btc) - 1
+    return out
+
+
+def regime(rows, trend, now):
+    """The weekly market call for a spot holder of majors: Risk-on (alts fine), Rotate to BTC, or Risk-off (stables).
+    Returns (label, css tone, reasons). Hand-set rules over four measurable inputs; the record will tune it."""
+    week = (now - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+    votes = {a: (u, d) for a, u, d, _ in consensus(rows, week)}
+    up = sum(votes.get(a, (0, 0))[0] for a in ("CRYPTO", "BTC", "ETH", "SOL"))
+    dn = sum(votes.get(a, (0, 0))[1] for a in ("CRYPTO", "BTC", "ETH", "SOL"))
+    flow = sum(W[r["weight"]] * (1 if r["direction"] == "bullish" else -1) for r in rows
+               if r["kind"] == "onchain" and r["asset"] in ("BTC", "ETH") and r["created_at"] >= week and not r.get("snapshot"))
+    btc = trend.get("BTC")
+    alts = [trend[a] for a in ("ETH", "SOL") if a in trend]
+    alt = sum(alts) / len(alts) if alts else None
+    sig = lambda v, lo, hi: 0 if v is None else -1 if v < lo else 1 if v > hi else 0
+    # ponytail: fixed cut-offs (BTC ±5%, alts vs BTC ±3%, KOL lean ±20%); score the calls once a few weeks are logged
+    s_btc, s_alt = sig(btc, -0.05, 0.05), sig(alt, -0.03, 0.03)
+    s_kol = sig((up - dn) / (up + dn) if up + dn else None, -0.2, 0.2)
+    s_flow = -1 if flow < -3 else 1 if flow > 3 else 0
+    reasons = [f"BTC {btc:+.1%} over 2 weeks" if btc is not None else "BTC trend: no data",
+               f"ETH/SOL {alt:+.1%} vs BTC" if alt is not None else "alts vs BTC: no data",
+               f"KOLs on market/majors: {up}▲ {dn}▼", "on-chain BTC/ETH flow: " + ("net selling" if s_flow < 0 else "net buying" if s_flow > 0 else "mixed")]
+    if s_btc < 0 and (s_kol < 0 or s_flow < 0):
+        return "Risk-off", "bearish", reasons
+    if s_alt < 0 or (s_kol < 0 and s_btc >= 0):
+        return "Rotate to BTC", "warn", reasons
+    if s_alt > 0 and s_kol >= 0 and s_btc >= 0:
+        return "Risk-on", "bullish", reasons
+    return "Neutral · lean BTC", "", reasons  # J's rule: when in doubt, BTC
+
+
+def regime_line(rows, trend, now):
+    label, tone, reasons = regime(rows, trend, now)
+    return (f'<div class="regime hovertip" data-head="Market call: {e(label)}" data-sub="{e(" · ".join(reasons))}">'
+            f'Market: <b class="dir {tone}">{e(label)}</b></div>')
+
+
+def assets_section(rows, trend={}):
     cutoff = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     cards = []
     for asset, up, down, flip in consensus(rows, cutoff):
-        cards.append(f'<div class="card" data-asset="{e(asset)}" role="button" tabindex="0"><b>{e(asset)}</b>{"<i title=flipped></i>" if flip else ""}'
+        tr = trend.get(asset)
+        tag = (f'<small class="tr dir {"bullish" if tr >= 0 else "bearish"}" title="2-week change{"" if asset == "BTC" else " vs BTC"}">'
+               f'{tr:+.0%}{"" if asset == "BTC" else " vs BTC"}</small>') if tr is not None else ""
+        cards.append(f'<div class="card" data-asset="{e(asset)}" role="button" tabindex="0"><b>{e(asset)}</b>{tag}{"<i title=flipped></i>" if flip else ""}'
                      f'<span class="dir bullish">▲{up}</span><span class="dir bearish">▼{down}</span></div>')
     return f'<nav class="tickers">{"".join(cards)}</nav>'
 
@@ -426,7 +512,7 @@ def paged(rows, whys={}):
     return f'<ul class="paged">{lis}</ul>{more}'
 
 
-def page(rows, spend_html="", emerging_html="", charts_html="", record_html=""):
+def page(rows, spend_html="", emerging_html="", charts_html="", record_html="", trend={}):
     # the feed covers the same 7 days as the consensus; older items stay in the database
     week = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     now = datetime.now(timezone.utc)
@@ -479,7 +565,8 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 
 .tickers{{display:flex;flex-direction:column;gap:2px}}
 .card{{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:999px;font-size:15px;cursor:pointer;white-space:nowrap}}
-.card:hover{{background:var(--tile)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
+.card:hover{{background:var(--tile)}} .card .tr{{font-size:11px;font-weight:500;margin-right:auto;opacity:.85}} .card b:has(+ .tr){{margin-right:0}} .regime{{margin:-8px 0 14px 12px;font-size:13px;color:var(--mute);cursor:default}}
+.dir.warn{{color:var(--hi)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
 .charts .chart{{padding:16px 16px 4px;border-bottom:1px solid var(--line)}} .chart svg{{width:100%;height:auto;display:block;margin-top:8px}}
 .chart .price{{fill:none;stroke:var(--fg);stroke-width:1.5;opacity:.8}} .chart .grid{{stroke:var(--line);stroke-width:1}}
 .chart .axis{{fill:var(--mute);font-size:11px}} .chart .mk .ring{{fill:var(--tile);stroke-width:2.5}}
@@ -499,7 +586,8 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 </style>
 <div class="layout"><aside class="left"><div class="left-inner">
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
-{assets_section(rows)}
+{regime_line(rows, trend, datetime.now(timezone.utc)) if trend else ""}
+{assets_section(rows, trend)}
 </div></aside><main>
 {charts_html}
 {record_html}
@@ -530,7 +618,7 @@ document.querySelectorAll('.more').forEach(b => b.onclick = () => {{
   if (later.length <= {PAGE}) b.remove();
 }});
 const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; document.body.append(tip);
-document.querySelectorAll('.mk').forEach(m => {{
+document.querySelectorAll('.mk, .hovertip').forEach(m => {{
   m.onmouseenter = () => {{ tip.innerHTML = '<b></b><span></span>'; tip.firstChild.textContent = m.dataset.head;
     tip.lastChild.textContent = m.dataset.sub; tip.hidden = false; }};
   m.onmousemove = ev => {{ tip.style.left = Math.min(ev.clientX + 14, innerWidth - 320) + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; }};
@@ -600,5 +688,5 @@ if __name__ == "__main__":
     log_picks(con, picks(rows, now, {a: (u, d) for a, u, d, _ in consensus(rows, week)}), now)
     score_picks(con, now)
     (ROOT / "site" / "index.html").write_text(page(rows, spend(con, now), emerging_section(con, now), charts_section(con, rows),
-                                                   scorecard(con)))
+                                                   scorecard(con), trends(con)))
     print(f"site/index.html: {len(rows)} items")

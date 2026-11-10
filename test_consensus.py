@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import sqlite3
 
-from build import log_picks, score_picks, scorecard, chart, resize, collapse, consensus, emerging, local_time, picks, speaker, spend, stances, win_rates
+from build import change, regime, log_picks, score_picks, scorecard, chart, resize, collapse, consensus, emerging, local_time, picks, speaker, spend, stances, win_rates
 
 
 def r(handle, kind, direction, weight="high", t="2026-11-06", flip=False):
@@ -104,4 +104,13 @@ assert "1/1" in scorecard(lg) and "+10.0%" in scorecard(lg), scorecard(lg)
 # contract addresses are never treated as tickers
 from build import ADDRESS
 assert ADDRESS.match("0X7FE995A80075DF3DC8AE11A9B82C7FE4202CD87F") and not ADDRESS.match("ZEC") and not ADDRESS.match("CRYPTO")
+# change: % over the last N days of an hourly series; None if the series is too short
+hs = [[(1762000000 + i * 3600) * 1000, 100 + i] for i in range(24 * 15)]
+assert abs(change(hs, 14) - (459 / 123 - 1)) < 1e-9 and change(hs[:24], 14) is None
+# regime: falling BTC with bearish KOLs is risk-off; weak alts alone is rotate; strong alts with bullish KOLs is risk-on
+k = lambda a, d: dict(handle=a + d, asset="BTC", kind="call", direction=d, weight="high", created_at="2026-11-07T00:00:00Z", flip=False)
+assert regime([k("a", "bearish"), k("b", "bearish")], {"BTC": -0.08, "ETH": -0.01, "SOL": 0.0}, now)[0] == "Risk-off"
+assert regime([], {"BTC": 0.0, "ETH": -0.06, "SOL": -0.05}, now)[0] == "Rotate to BTC"
+assert regime([k("a", "bullish")], {"BTC": 0.02, "ETH": 0.05, "SOL": 0.06}, now)[0] == "Risk-on"
+assert regime([], {}, now)[0] == "Neutral · lean BTC"
 print("ok")
