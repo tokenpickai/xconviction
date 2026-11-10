@@ -1,7 +1,6 @@
 blknoiz06
 lookonchain
 TaikiMaeda2
-Pentosh1
 DaanCrypto
 OnchainLens
 DefiIgnas
@@ -9,3 +8,5 @@ AltcoinSherpa
 EmberCN
 CryptoKaleo
 kale_abe
+ThinkingUSD
+ai_9684xtpa
