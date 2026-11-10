@@ -51,11 +51,25 @@ def is_kol(con, handle):
     return kinds.get("call", 0) >= kinds.get("onchain", 0)
 
 
+def one_way(con, handle):
+    """A KOL who only ever pumps, mostly one coin: 20+ calls, 90%+ bullish, half of them on a single coin.
+    Catches bag promoters whose coins are too small to price (so a win rate never builds)."""
+    n, bull = con.execute("""select count(*), sum(direction='bullish') from calls where lower(handle)=lower(?)
+        and kind='call' and asset != 'CRYPTO'""", (handle,)).fetchone()
+    if not n or n < 20 or bull / n < 0.9:
+        return None
+    coin, top = con.execute("""select asset, count(*) from calls where lower(handle)=lower(?) and kind='call'
+        and asset != 'CRYPTO' group by 1 order by 2 desc limit 1""", (handle,)).fetchone()
+    return f"one-way promoter: {bull}/{n} calls bullish, {top} on {coin}" if top / n >= 0.5 else None
+
+
 def verdict(trial, handle):
     """(passed, reason) from a trial database."""
     posts = trial.execute("select count(*) from posts where handle=?", (handle,)).fetchone()[0]
     items = trial.execute("select count(*) from calls where handle=?", (handle,)).fetchone()[0]
     _, problems = check.report(trial, handle)
+    if one_way(trial, handle):
+        problems.append(one_way(trial, handle))
     if posts < MIN_POSTS or items < MIN_ITEMS or items / max(posts, 1) < MIN_YIELD:
         problems.append(f"{items} items from {posts} posts (need {MIN_ITEMS}+ items, {MIN_YIELD:.0%}+ of {MIN_POSTS}+ posts)")
     return not problems, "; ".join(dict.fromkeys(problems)) or f"{items} items from {posts} posts"
@@ -127,6 +141,11 @@ def main(now, force=False):
         w, n = rates.get(name, (0, 0))
         if n:
             lines.append(f"- 📊 @{name}: {w}/{n} stances beat BTC ({w / n:.0%})")
+        shill = one_way(con, name)
+        if shill and name not in dropped:
+            dropped.append(name)
+            log(con, name, "dropped", shill)
+            lines.append(f"- 🗑 dropped **@{name}**: {shill}")
         if n >= MIN_SCORED and w / n < MIN_WIN and name not in dropped:
             dropped.append(name)
             log(con, name, "dropped", f"win rate {w}/{n}")

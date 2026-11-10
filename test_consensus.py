@@ -113,4 +113,10 @@ assert regime([k("a", "bearish"), k("b", "bearish")], {"BTC": -0.08, "ETH": -0.0
 assert regime([], {"BTC": 0.0, "ETH": -0.06, "SOL": -0.05}, now)[0] == "Rotate to BTC"
 assert regime([k("a", "bullish")], {"BTC": 0.02, "ETH": 0.05, "SOL": 0.06}, now)[0] == "Risk-on"
 assert regime([], {}, now)[0] == "Neutral · lean BTC"
+# one_way: 20+ calls, 90%+ bullish, half on one coin = bag promoter
+from scout import one_way
+ow = sqlite3.connect(":memory:")
+ow.execute("create table calls(handle, kind, asset, direction)")
+ow.executemany("insert into calls values(?,?,?,?)", [("k", "call", "ZCAT", "bullish")] * 15 + [("k", "call", "ZEC", "bullish")] * 6 + [("d", "call", "BTC", "bullish")] * 12 + [("d", "call", "ETH", "bearish")] * 10)
+assert one_way(ow, "k") and not one_way(ow, "d")
 print("ok")
