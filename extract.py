@@ -36,6 +36,8 @@ Two kinds of item:
        medium = a clear directional view, some reasoning, no stated position; or saying he still holds / hasn't sold a position (bullish).
        low    = casual, hedged or conditional ("if X gets attention, maybe..."), or a short throwaway reply.
    - When unsure between two weights, pick the lower one.
+   - Exits count as calls. Closing, cutting, taking profit on or capitulating a position ("closed my longs", "sold", "capitulated", "cut it") is a bearish call on that coin at the position's weight, even if he keeps a smaller or spot bag.
+   - A long-term belief stated alongside an exit ("still holding spot, will be huge in 2027") is a separate bullish item with weight low: the user trades on a days-to-weeks horizon, so what he just did matters more than a distant hope. Only weight a long-term view higher if he adds to the position.
 
 2. "onchain": a reported on-chain or flow event (whale or smart-wallet move, exchange deposit/withdrawal, large leveraged position, liquidation, ETF or fund flow, treasury buy/sell, unlock).
    - direction = the market pressure it implies for the asset: deposit to exchange, selling, opening shorts = bearish; withdrawal from exchange, buying, opening longs, inflows = bullish. Liquidations: bearish for longs liquidated, bullish for shorts liquidated.
