@@ -2,12 +2,18 @@
 
     .venv/bin/python extract.py
 """
-import json, os, sqlite3
+import json, os, re, sqlite3
 from pathlib import Path
 
 import anthropic
 
 import fetch
+
+ADDRESS = re.compile(r"^(0X[0-9A-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$")  # EVM or Solana-style address, not a ticker
+
+
+def is_address(asset):
+    return bool(ADDRESS.match(asset)) or bool(ADDRESS.match(asset.upper()))
 
 ROOT = Path(__file__).parent
 MODEL = "claude-opus-5-5"
@@ -40,7 +46,7 @@ Two kinds of item:
    - proven: true when the post credits the actor with a strong track record: a high win rate ("88% win rate", "10/10 wins"), large realized profits, called "smart money"/"top trader", or a well-known fund. Not unknown whales, not traders described by losses. For "call" items, always false.
    - usd: the USD size of the move or position as stated or computable from the post (e.g. 45300000 for "$45.3M"); 0 if not given. For "call" items, always 0.
 
-asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole.
+asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole. Never a contract or wallet address: if the post only gives an address, use the ticker if the post names it, otherwise leave that item out.
 summary: one plain sentence a reader can act on, with numbers and the actor when given (e.g. "BlackRock moved 7,244 BTC ($558M) out of its ETF", "Strongly bullish SOL; says the single-chain thesis still holds").
 
 themes (per post, separate from items): opportunities the author is pitching. Usually [] - most posts have none.
@@ -137,6 +143,8 @@ def process(con, client):
             if not p:
                 continue
             for it in r["items"]:
+                if is_address(it["asset"].upper().lstrip("$")) or is_address(it["asset"].lstrip("$")):
+                    continue  # the model occasionally passes a contract address through as a ticker
                 con.execute("""insert into calls(post_id, handle, created_at, kind, asset, direction, weight,
                     summary, snapshot, proven, usd) values(?,?,?,?,?,?,?,?,?,?,?)""", (
                     p[0], p[1], p[2], it["kind"], it["asset"].upper().lstrip("$"),

@@ -101,4 +101,7 @@ assert scorecard(lg) == ""
 lg.executemany("update coins set price=? where symbol=?", [(110, "SOL"), (50000, "BTC")])
 score_picks(lg, now + timedelta(hours=73))
 assert "1/1" in scorecard(lg) and "+10.0%" in scorecard(lg), scorecard(lg)
+# contract addresses are never treated as tickers
+from build import ADDRESS
+assert ADDRESS.match("0X7FE995A80075DF3DC8AE11A9B82C7FE4202CD87F") and not ADDRESS.match("ZEC") and not ADDRESS.match("CRYPTO")
 print("ok")

@@ -12,6 +12,7 @@ import fetch
 
 ROOT = Path(__file__).parent
 W = {"high": 3, "medium": 2, "low": 1}
+ADDRESS = re.compile(r"^(0X[0-9A-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$")
 WINDOW_DAYS = 7  # consensus only looks this far back, for every account, old or new
 
 
@@ -19,6 +20,7 @@ def load():
     con = fetch.db()
     cols = "post_id handle created_at kind asset direction weight summary snapshot proven usd".split()
     rows = [dict(zip(cols, r)) for r in con.execute(f"select {','.join(cols)} from calls order by created_at")]
+    rows = [r for r in rows if not ADDRESS.match(r["asset"])]  # contract addresses that slipped in as tickers
     # a flip = an account's firm call on an asset pointing the other way from its previous firm call;
     # low-weight remarks can't flip
     last = {}
