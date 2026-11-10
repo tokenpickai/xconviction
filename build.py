@@ -148,8 +148,8 @@ def chart(asset, series, rows):
     change = series[-1][1] / series[0][1] - 1
     return (f'<div class="chart" data-asset="{e(asset)}" hidden><div class="chart-head"><b>{e(asset)}</b> {usd(series[-1][1])} '
             f'<span class="dir {"bullish" if change >= 0 else "bearish"}">{change:+.1%}</span> '
-            f'<span class="meta">7 days · hover a face for the call</span></div>'
-            f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="{e(asset)} price over 7 days with calls marked">'
+            f'<span class="meta">14 days · hover a face for the call</span></div>'
+            f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="{e(asset)} price over 14 days with calls marked">'
             f'<defs><clipPath id="av-{e(asset)}" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath></defs>'
             f'{"".join(grid)}<polyline points="{line}" class="price"/>{"".join(labels)}{"".join(marks)}</svg></div>')
 
@@ -171,6 +171,8 @@ def item(r, show_asset=True, why=None):
     flip = f'<span class="flip" title="changed from {was} to {r["direction"]}">flipped from {was}</span>' if r.get("flip") else ""
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
     snap = ' <span class="wt snap">position</span>' if r.get("snapshot") else ""
+    if r["kind"] == "onchain" and r.get("proven") and not r.get("snapshot"):
+        snap += ' <span class="wt pro" title="the post credits this trader with a strong track record">proven trader</span>'
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
     return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} {act}'
             f'<span class="wt">{r["weight"]}</span>{flip}{snap} {pic}<b>{e(speaker(r))}</b>{wr_tag(r.get("wr"))}<b>:</b> {e(r["summary"])}'
@@ -399,7 +401,6 @@ def spend(con, now):
     return f'Est. spend: ${since(1):.2f} last 24h · ${week:.2f} last 7 days{pace}'
 
 
-MAJORS = ("BTC", "ETH", "SOL", "BNB", "XRP")
 TREND_DAYS = 14
 
 
@@ -412,44 +413,54 @@ def change(series, days):
     return series[-1][1] / then - 1
 
 
+STABLES = {"USDT", "USDC", "DAI", "USDE", "FDUSD", "PYUSD", "USD1", "CRYPTO"}
+
+
 def trends(con):
-    """{asset: 2-week change} for BTC (in USD) and the other majors (vs BTC)."""
-    hist = {a: json.loads(d) for a, d in con.execute("select symbol, data from history")} if con.execute(
-        "select 1 from sqlite_master where name='history'").fetchone() else {}
+    """{asset: 2-week change} for every coin with a stored price series: BTC in USD, everything else vs BTC."""
+    series = {a: json.loads(d) for a, d in con.execute("select symbol, data from series")}
+    btc = change(series["BTC"], TREND_DAYS) if "BTC" in series else None
     out = {}
-    btc = change(hist["BTC"], TREND_DAYS) if "BTC" in hist else None
-    for a, series in hist.items():
-        c = change(series, TREND_DAYS)
-        if c is not None and btc is not None:
+    for a, sr in series.items():
+        c = change(sr, TREND_DAYS)
+        if c is not None and btc is not None and a not in STABLES:
             out[a] = btc if a == "BTC" else (1 + c) / (1 + btc) - 1
     return out
 
 
 def regime(rows, trend, now):
-    """The weekly market call for a spot holder of majors: Risk-on (alts fine), Rotate to BTC, or Risk-off (stables).
-    Returns (label, css tone, reasons). Hand-set rules over four measurable inputs; the record will tune it."""
+    """The weekly market call for a spot holder: Risk-on (alts fine), Rotate to BTC, or Risk-off (stables).
+    Looks across every coin we track, not just a few: BTC's own trend, how many coins are beating BTC,
+    what KOLs say about the market vs alts, and net on-chain flow. Returns (label, css tone, reasons)."""
     week = (now - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     votes = {a: (u, d) for a, u, d, _ in consensus(rows, week)}
-    up = sum(votes.get(a, (0, 0))[0] for a in ("CRYPTO", "BTC", "ETH", "SOL"))
-    dn = sum(votes.get(a, (0, 0))[1] for a in ("CRYPTO", "BTC", "ETH", "SOL"))
+    mk_up = sum(votes.get(a, (0, 0))[0] for a in ("CRYPTO", "BTC"))
+    mk_dn = sum(votes.get(a, (0, 0))[1] for a in ("CRYPTO", "BTC"))
+    al_up = sum(u for a, (u, d) in votes.items() if a not in ("CRYPTO", "BTC") and a not in STABLES)
+    al_dn = sum(d for a, (u, d) in votes.items() if a not in ("CRYPTO", "BTC") and a not in STABLES)
     flow = sum(W[r["weight"]] * (1 if r["direction"] == "bullish" else -1) for r in rows
-               if r["kind"] == "onchain" and r["asset"] in ("BTC", "ETH") and r["created_at"] >= week and not r.get("snapshot"))
+               if r["kind"] == "onchain" and r["created_at"] >= week and not r.get("snapshot") and r["asset"] not in STABLES)
     btc = trend.get("BTC")
-    alts = [trend[a] for a in ("ETH", "SOL") if a in trend]
-    alt = sum(alts) / len(alts) if alts else None
+    alts = sorted(v for a, v in trend.items() if a != "BTC")
+    median = alts[len(alts) // 2] if alts else None
+    beat = sum(v > 0 for v in alts) / len(alts) if alts else None
     sig = lambda v, lo, hi: 0 if v is None else -1 if v < lo else 1 if v > hi else 0
-    # ponytail: fixed cut-offs (BTC ±5%, alts vs BTC ±3%, KOL lean ±20%); score the calls once a few weeks are logged
-    s_btc, s_alt = sig(btc, -0.05, 0.05), sig(alt, -0.03, 0.03)
-    s_kol = sig((up - dn) / (up + dn) if up + dn else None, -0.2, 0.2)
+    # ponytail: fixed cut-offs (BTC ±5%, median alt vs BTC ±3% or under 30% / over 60% of coins beating BTC,
+    # KOL lean ±20%); score the calls once a few weeks are logged
+    s_btc = sig(btc, -0.05, 0.05)
+    s_alt = 0 if median is None else -1 if median < -0.03 or beat < 0.3 else 1 if median > 0.03 and beat > 0.6 else 0
+    s_mkt = sig((mk_up - mk_dn) / (mk_up + mk_dn) if mk_up + mk_dn else None, -0.2, 0.2)
+    s_kal = sig((al_up - al_dn) / (al_up + al_dn) if al_up + al_dn else None, -0.2, 0.2)
     s_flow = -1 if flow < -3 else 1 if flow > 3 else 0
     reasons = [f"BTC {btc:+.1%} over 2 weeks" if btc is not None else "BTC trend: no data",
-               f"ETH/SOL {alt:+.1%} vs BTC" if alt is not None else "alts vs BTC: no data",
-               f"KOLs on market/majors: {up}▲ {dn}▼", "on-chain BTC/ETH flow: " + ("net selling" if s_flow < 0 else "net buying" if s_flow > 0 else "mixed")]
-    if s_btc < 0 and (s_kol < 0 or s_flow < 0):
+               f"{sum(v > 0 for v in alts)} of {len(alts)} tracked coins beat BTC (median {median:+.1%})" if alts else "alts vs BTC: no data",
+               f"KOLs: market {mk_up}▲ {mk_dn}▼, alts {al_up}▲ {al_dn}▼",
+               "on-chain flow: " + ("net selling" if s_flow < 0 else "net buying" if s_flow > 0 else "mixed")]
+    if s_btc < 0 and (s_mkt < 0 or s_flow < 0):
         return "Risk-off", "bearish", reasons
-    if s_alt < 0 or (s_kol < 0 and s_btc >= 0):
+    if s_alt < 0 or (s_kal < 0 and s_btc >= 0):
         return "Rotate to BTC", "warn", reasons
-    if s_alt > 0 and s_kol >= 0 and s_btc >= 0:
+    if s_alt > 0 and s_kal >= 0 and s_btc >= 0:
         return "Risk-on", "bullish", reasons
     return "Neutral · lean BTC", "", reasons  # J's rule: when in doubt, BTC
 
@@ -475,11 +486,16 @@ def assets_section(rows, trend={}):
 PAGE = 30
 
 
-def pinned(rows, whys):
-    """Act now picks first, in rank order, then everything else newest first."""
+def pinned(rows, whys, now=None):
+    """Act now picks first, in rank order, then fresh moves by proven traders (last 48h), then everything else
+    newest first."""
     key = lambda r: (r["post_id"], r["asset"])
     top = sorted((r for r in rows if key(r) in whys), key=lambda r: list(whys).index(key(r)))
-    return top + [r for r in rows if key(r) not in whys]
+    fresh = ((now or datetime.now(timezone.utc)) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%S")
+    pro = [r for r in rows if key(r) not in whys and r["kind"] == "onchain" and r.get("proven")
+           and not r.get("snapshot") and r["created_at"] >= fresh]
+    seen = {key(r) for r in top + pro}
+    return top + pro + [r for r in rows if key(r) not in seen]
 
 
 def collapse(rows):
@@ -566,7 +582,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .tickers{{display:flex;flex-direction:column;gap:2px}}
 .card{{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:999px;font-size:15px;cursor:pointer;white-space:nowrap}}
 .card:hover{{background:var(--tile)}} .card .tr{{font-size:11px;font-weight:500;margin-right:auto;opacity:.85}} .card b:has(+ .tr){{margin-right:0}} .regime{{margin:-8px 0 14px 12px;font-size:13px;color:var(--mute);cursor:default}}
-.dir.warn{{color:var(--hi)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
+.dir.warn{{color:var(--hi)}} .wt.pro{{color:var(--up);border-color:var(--up)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
 .charts .chart{{padding:16px 16px 4px;border-bottom:1px solid var(--line)}} .chart svg{{width:100%;height:auto;display:block;margin-top:8px}}
 .chart .price{{fill:none;stroke:var(--fg);stroke-width:1.5;opacity:.8}} .chart .grid{{stroke:var(--line);stroke-width:1}}
 .chart .axis{{fill:var(--mute);font-size:11px}} .chart .mk .ring{{fill:var(--tile);stroke-width:2.5}}
