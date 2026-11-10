@@ -103,7 +103,7 @@ def main(now, force=False):
             break
         extract.process(trial, client)
         prices.schema(trial)
-        trial.executemany("insert into coins values(?,?,?,?)", [(sym, *v) for sym, v in coins.items()])
+        trial.executemany("insert into coins(symbol, id, price, updated_at) values(?,?,?,?)", [(sym, *v) for sym, v in coins.items()])
         prices.fill(trial, coins, now.timestamp())
         # count the trial's spend in the real usage log, so the footer stays honest
         con.executemany("insert into usage values(?,?,?,?)", trial.execute("select * from usage").fetchall())

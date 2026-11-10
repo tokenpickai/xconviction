@@ -37,6 +37,9 @@ def schema(con):
     for col in ("btc0", "p7", "b7"):
         if col not in cols:
             con.execute(f"alter table call_prices add column {col} real")
+    if "volume" not in [c[1] for c in con.execute("pragma table_info(coins)")]:
+        con.execute("alter table coins add column volume real")  # 24h USD volume, to size on-chain moves
+    con.execute("create table if not exists series(symbol text primary key, data text, updated_at real)")
 
 
 def nearest(series, t):
@@ -70,15 +73,35 @@ def fill(con, coins, now):
     return len(need)
 
 
+def charts(con, coins, now, max_age=6 * 3600, top=25):
+    """7-day hourly price series for the 25 most-discussed coins of the week, refreshed when 6+ hours old."""
+    # ponytail: CoinGecko's free tier throttles bursts hard (36 charts took 11 min locally), so cap the count and refresh rarely
+    week = datetime.fromtimestamp(now - 7 * 86400).strftime("%Y-%m-%dT%H:%M:%S")
+    have = dict(con.execute("select symbol, updated_at from series"))
+    n = 0
+    for (a,) in con.execute("""select asset from calls where created_at >= ? and asset != 'CRYPTO'
+            group by asset order by count(*) desc limit ?""", (week, top)).fetchall():
+        if a in coins and now - (have.get(a) or 0) >= max_age:
+            data = get(f"/coins/{coins[a][0]}/market_chart?vs_currency=usd&days=7")["prices"]
+            con.execute("insert or replace into series values(?,?,?)", (a, json.dumps(data), now))
+            n += 1
+            time.sleep(3)
+    con.commit()
+    return n
+
+
 if __name__ == "__main__":
     con = sqlite3.connect(ROOT / "xconviction.db")
     schema(con)
     # symbol -> id by market cap rank; first (largest) coin wins when symbols collide
-    coins = {}
+    coins, vol = {}, {}
     for page in (1, 2):
         for c in get(f"/coins/markets?vs_currency=usd&per_page=250&page={page}"):
-            coins.setdefault(c["symbol"].upper(), (c["id"], c["current_price"], c["last_updated"]))
+            if c["symbol"].upper() not in coins:
+                coins[c["symbol"].upper()] = (c["id"], c["current_price"], c["last_updated"])
+                vol[c["symbol"].upper()] = c.get("total_volume")
     con.execute("delete from coins")
-    con.executemany("insert into coins values(?,?,?,?)", [(s, *v) for s, v in coins.items()])
+    con.executemany("insert into coins(symbol, id, price, updated_at, volume) values(?,?,?,?,?)",
+                    [(s, *v, vol[s]) for s, v in coins.items()])
     con.commit()
-    print(f"{len(coins)} coins, {fill(con, coins, time.time())} call price rows filled")
+    print(f"{len(coins)} coins, {fill(con, coins, time.time())} call price rows filled, {charts(con, coins, time.time())} charts refreshed")

@@ -39,7 +39,7 @@ def db(path=ROOT / "xconviction.db"):
     if "pitch" not in [c[1] for c in con.execute("pragma table_info(themes)")]:
         con.execute("alter table themes add column pitch text")
     cols = [c[1] for c in con.execute("pragma table_info(calls)")]
-    for col in ("snapshot", "proven"):  # databases from before these on-chain tags existed
+    for col in ("snapshot", "proven", "usd"):  # databases from before these on-chain tags existed
         if cols and col not in cols:
             con.execute(f"alter table calls add column {col} integer default 0")
     if "avatar" not in [c[1] for c in con.execute("pragma table_info(accounts)")]:
