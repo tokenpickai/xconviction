@@ -2,7 +2,7 @@
 
     python3 build.py && open site/index.html
 """
-import html, re, sqlite3
+import html, json, re, sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,7 +17,7 @@ WINDOW_DAYS = 7  # consensus only looks this far back, for every account, old or
 
 def load():
     con = fetch.db()
-    cols = "post_id handle created_at kind asset direction weight summary snapshot proven".split()
+    cols = "post_id handle created_at kind asset direction weight summary snapshot proven usd".split()
     rows = [dict(zip(cols, r)) for r in con.execute(f"select {','.join(cols)} from calls order by created_at")]
     # a flip = an account's firm call on an asset pointing the other way from its previous firm call;
     # low-weight remarks can't flip
@@ -41,10 +41,22 @@ def load():
         r["name"] = names.get(r["handle"], "")
         r["avatar"] = r["handle"] in avatars
     rates = win_rates(con, datetime.now(timezone.utc))
+    volume = dict(con.execute("select symbol, volume from coins where volume > 0"))
     for r in rows:
         r["wr"] = rates.get(r["handle"], (0, 0))
         r["p0"], r["p1"] = at_call.get((r["post_id"], r["asset"])), now.get(r["asset"])
+        if r["kind"] == "onchain" and r.get("usd") and r["asset"] in volume:
+            r["share"] = resize(r, volume[r["asset"]])
     return rows
+
+
+def resize(r, volume):
+    """Re-rate an on-chain move by its size against the coin's daily trading volume, not raw dollars:
+    $20M is noise on ETH but huge on a small coin. Returns the share of daily volume."""
+    share = r["usd"] / volume
+    # ponytail: hand-set cut-offs (5% of a day's volume = high, 1% = medium); tune with more data
+    r["weight"] = "high" if share >= 0.05 else "medium" if share >= 0.01 else "low"
+    return share
 
 
 def usd(x):
@@ -88,6 +100,59 @@ def wr_tag(wr):
     return f' <span class="wr {tone}" title="{w} of {n} calls beat BTC (judged 7 days after the call; newer ones so far)">{w}/{n}</span>'
 
 
+def size_note(r):
+    s = r.get("share")
+    if s is None:
+        return ""
+    pct = f"{s:.0%}" if s >= 0.01 else "<1%"
+    return f'<span class="why">{pct} of daily volume</span> · '
+
+
+def flips_section(rows, week):
+    """Recent reversals: the clearest sign a trusted account changed its mind."""
+    out = []
+    for r in reversed([r for r in rows if r.get("flip") and r["created_at"] >= week]):
+        before = "bearish" if r["direction"] == "bullish" else "bullish"
+        pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
+        out.append(f'<li data-asset="{e(r["asset"])}">{pic}<b>{e(speaker(r))}</b> flipped on <b>{e(r["asset"])}</b>: '
+                   f'<span class="dir {before}">{before}</span> → <span class="dir {r["direction"]}">{r["direction"]}</span>'
+                   f'<div class="meta">{e(r["summary"])}<br>{when(r["created_at"])} · '
+                   f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
+    return f'<div class="flips"><div class="sub">Changed their mind</div><ul>{"".join(out[:5])}</ul></div>' if out else ""
+
+
+def chart(asset, series, rows):
+    """7-day price line for one coin, with each call/signal as a dot at its time and price (green up, red down)."""
+    W, H, P = 568, 150, 8
+    t0, t1 = series[0][0] / 1000, series[-1][0] / 1000
+    lo, hi = min(p for _, p in series), max(p for _, p in series)
+    x = lambda t: P + (t - t0) / (t1 - t0) * (W - 2 * P)
+    y = lambda v: H - P - (v - lo) / ((hi - lo) or 1) * (H - 2 * P)
+    line = " ".join(f"{x(t / 1000):.1f},{y(v):.1f}" for t, v in series)
+    dots = []
+    for r in rows:
+        t = ts(r["created_at"])
+        if r["asset"] != asset or not t0 <= t <= t1 or not r["p0"]:
+            continue
+        tip = e(f'{speaker(r)} ({r["weight"]}, {local_time(r["created_at"])}): {r["summary"]}')
+        dots.append(f'<circle cx="{x(t):.1f}" cy="{y(min(max(r["p0"], lo), hi)):.1f}" r="{5 if r["weight"] == "high" else 4}" '
+                    f'class="{r["direction"]}{" chain" if r["kind"] == "onchain" else ""}"><title>{tip}</title></circle>')
+    change = series[-1][1] / series[0][1] - 1
+    return (f'<div class="chart" data-asset="{e(asset)}" hidden><div class="chart-head"><b>{e(asset)}</b> {usd(series[-1][1])} '
+            f'<span class="dir {"bullish" if change >= 0 else "bearish"}">{change:+.1%}</span> <span class="meta">7d · dots are calls and signals</span></div>'
+            f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="{e(asset)} price over 7 days with calls marked">'
+            f'<polyline points="{line}" class="price"/>{"".join(dots)}</svg></div>')
+
+
+def charts_section(con, rows):
+    out = []
+    for asset, data in con.execute("select symbol, data from series"):
+        series = json.loads(data)
+        if len(series) > 1:
+            out.append(chart(asset, series, rows))
+    return f'<div class="charts">{"".join(out)}</div>'
+
+
 def item(r, show_asset=True, why=None):
     """why=None: a normal item. why="..." (even empty): an Act now pick, with its reasons."""
     act = '<span class="act">Act now</span>' if why is not None else ""
@@ -98,7 +163,7 @@ def item(r, show_asset=True, why=None):
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
     return (f'<li class="w-{r["weight"]}" data-asset="{e(r["asset"])}"><span class="dir {r["direction"]}">{arrow}</span> {asset} {act}'
             f'<span class="wt">{r["weight"]}</span>{flip}{snap} {pic}<b>{e(speaker(r))}</b>{wr_tag(r.get("wr"))}<b>:</b> {e(r["summary"])}'
-            f'<div class="meta">{why or ""}{when(r["created_at"])} · {move(r)}'
+            f'<div class="meta">{why or ""}{size_note(r)}{when(r["created_at"])} · {move(r)}'
             f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
 
 
@@ -343,7 +408,7 @@ def paged(rows, whys={}):
     return f'<ul class="paged">{lis}</ul>{more}'
 
 
-def page(rows, spend_html="", emerging_html=""):
+def page(rows, spend_html="", emerging_html="", charts_html=""):
     # the feed covers the same 7 days as the consensus; older items stay in the database
     week = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     now = datetime.now(timezone.utc)
@@ -397,6 +462,12 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .tickers{{display:flex;flex-direction:column;gap:2px}}
 .card{{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:999px;font-size:15px;cursor:pointer;white-space:nowrap}}
 .card:hover{{background:var(--tile)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
+.charts .chart{{padding:16px 16px 4px;border-bottom:1px solid var(--line)}} .chart svg{{width:100%;height:auto;display:block;margin-top:8px}}
+.chart .price{{fill:none;stroke:var(--mute);stroke-width:1.5}} .chart circle{{stroke:var(--bg);stroke-width:1.5}}
+.chart circle.bullish{{fill:var(--up)}} .chart circle.bearish{{fill:var(--down)}} .chart circle.chain{{opacity:.55}}
+.chart-head .meta{{display:inline;margin-left:6px}}
+.flips{{border-bottom:1px solid var(--line)}} .flips .sub{{padding:12px 16px 0;font-size:13px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.5px}}
+.flips li{{border-bottom:0}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .why{{color:var(--fg);font-weight:500}}
 .wr{{font-size:12px;font-weight:500;color:var(--mute)}} .wr.good{{color:var(--up)}} .wr.bad{{color:var(--down)}}
@@ -409,8 +480,9 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 <div class="logo"><svg viewBox="0 0 24 24" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>conviction</div>
 {assets_section(rows)}
 </div></aside><main>
+{charts_html}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
-<div id="calls" role="tabpanel">{paged(pinned(calls, whys), whys)}</div>
+<div id="calls" role="tabpanel">{flips_section(rows, week)}{paged(pinned(calls, whys), whys)}</div>
 <div id="onchain" role="tabpanel">{paged(pinned(chain, whys), whys)}</div>
 <footer><span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span>{f" · {spend_html}" if spend_html else ""}</footer>
 </main><aside class="right"><div class="right-inner">{emerging_html}</div></aside></div>
@@ -442,6 +514,7 @@ document.querySelectorAll('.card').forEach(card => card.onclick = card.onkeydown
   document.querySelectorAll('.card').forEach(k => k.classList.toggle('on', k.dataset.asset === only));
   document.querySelectorAll('li[data-asset]').forEach(li => li.hidden = only !== null && li.dataset.asset !== only);
   document.body.classList.toggle('filtering', only !== null);  // a filtered view shows every match, unpaged
+  document.querySelectorAll('.chart').forEach(ch => ch.hidden = ch.dataset.asset !== only);
 }});
 </script>
 """
@@ -451,5 +524,5 @@ if __name__ == "__main__":
     rows = load()
     (ROOT / "site").mkdir(exist_ok=True)
     con, now = fetch.db(), datetime.now(timezone.utc)
-    (ROOT / "site" / "index.html").write_text(page(rows, spend(con, now), emerging_section(con, now)))
+    (ROOT / "site" / "index.html").write_text(page(rows, spend(con, now), emerging_section(con, now), charts_section(con, rows)))
     print(f"site/index.html: {len(rows)} items")

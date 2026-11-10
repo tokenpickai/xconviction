@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import sqlite3
 
-from build import collapse, consensus, emerging, local_time, picks, speaker, spend, stances, win_rates
+from build import chart, resize, collapse, consensus, emerging, local_time, picks, speaker, spend, stances, win_rates
 
 
 def r(handle, kind, direction, weight="high", t="2026-11-06", flip=False):
@@ -82,4 +82,11 @@ sc.executemany("insert into calls values(?,?)", [("a", "2026-11-07T00:00:00")])
 assert silent(sc, {"a", "b"}, now) == []  # a has a call, b is too new to judge (first post inside the window)
 sc.execute("insert into posts values('b','2026-10-25T00:00:00','{}')")
 assert silent(sc, {"a", "b"}, now) == ["b"]
+# resize: the same $20M is noise on a big coin and huge on a small one
+assert (resize(dict(usd=20e6), 15e9), ) and resize(r1 := dict(usd=20e6), 15e9) < 0.01 and r1["weight"] == "low"
+assert resize(r2 := dict(usd=20e6), 100e6) == 0.2 and r2["weight"] == "high"
+# chart: one dot per in-range item, coloured by direction
+svg = chart("ZEC", [[1762300000000, 1300], [1762900000000, 1170]], [dict(asset="ZEC", created_at="2025-11-08T00:00:00Z", p0=1250,
+    direction="bullish", kind="call", weight="high", summary="s", handle="k", name="K")])
+assert svg.count("<circle") == 1 and 'class="bullish"' in svg
 print("ok")
