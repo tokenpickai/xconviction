@@ -135,10 +135,11 @@ def chart(asset, series, rows):
     for r in stances(sorted(calls, key=lambda r: r["created_at"])):  # one marker per stance, not per repeat post
         cx, cy = x(ts(r["created_at"])), y(min(max(r["p0"], lo), hi))
         up = r["direction"] == "bullish"
-        tip = e(f'{speaker(r)}: {r["direction"]} ({r["weight"]}) · {local_time(r["created_at"])} at {usd(r["p0"])}\n{r["summary"]}')
+        head = e(f'{speaker(r)} · {"▲" if up else "▼"} {r["direction"]} ({r["weight"]})')
+        sub = e(f'{local_time(r["created_at"])} at {usd(r["p0"])} — {r["summary"]}')
         face = (f'<image href="avatars/{e(r["handle"])}.jpg" x="{cx - 10:.1f}" y="{cy - 10:.1f}" width="20" height="20" '
                 f'clip-path="url(#av-{e(asset)})"/>' if r["avatar"] else "")
-        marks.append(f'<g class="mk {r["direction"]}" transform="translate(0,0)"><title>{tip}</title>'
+        marks.append(f'<g class="mk {r["direction"]}" data-head="{head}" data-sub="{sub}">'
                      f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11.5" class="ring"/>{face}'
                      f'<circle cx="{cx + 9:.1f}" cy="{cy + 9:.1f}" r="5.5" class="badge"/>'
                      f'<text x="{cx + 9:.1f}" y="{cy + 11.5:.1f}" class="arrow" text-anchor="middle">{"▲" if up else "▼"}</text></g>')
@@ -474,7 +475,9 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .chart .price{{fill:none;stroke:var(--fg);stroke-width:1.5;opacity:.8}} .chart .grid{{stroke:var(--line);stroke-width:1}}
 .chart .axis{{fill:var(--mute);font-size:11px}} .chart .mk .ring{{fill:var(--tile);stroke-width:2.5}}
 .chart .mk.bullish .ring,.chart .mk.bullish .badge{{stroke:var(--up);fill:var(--up)}} .chart .mk.bearish .ring,.chart .mk.bearish .badge{{stroke:var(--down);fill:var(--down)}}
-.chart .mk .ring{{fill:var(--tile)}} .chart .arrow{{fill:#fff;font-size:7px}} .chart .mk:hover .ring{{stroke-width:4}} .chart .mk{{cursor:default}}
+.chart .mk .ring{{fill:var(--tile)}} .chart .arrow{{fill:#fff;font-size:7px}} .chart .mk:hover .ring{{stroke-width:4}} .chart .mk{{cursor:pointer}}
+.tip{{position:fixed;z-index:10;max-width:300px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line);
+  box-shadow:0 4px 16px rgba(0,0,0,.35);font-size:13px;line-height:17px;pointer-events:none}} .tip b{{display:block;margin-bottom:2px}}
 .chart-head .meta{{display:inline;margin-left:6px}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .why{{color:var(--fg);font-weight:500}}
@@ -514,6 +517,13 @@ document.querySelectorAll('.more').forEach(b => b.onclick = () => {{
   const later = b.previousElementSibling.querySelectorAll('li.later');
   [...later].slice(0, {PAGE}).forEach(li => li.classList.remove('later'));
   if (later.length <= {PAGE}) b.remove();
+}});
+const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; document.body.append(tip);
+document.querySelectorAll('.mk').forEach(m => {{
+  m.onmouseenter = () => {{ tip.innerHTML = '<b></b><span></span>'; tip.firstChild.textContent = m.dataset.head;
+    tip.lastChild.textContent = m.dataset.sub; tip.hidden = false; }};
+  m.onmousemove = ev => {{ tip.style.left = Math.min(ev.clientX + 14, innerWidth - 320) + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; }};
+  m.onmouseleave = () => tip.hidden = true;
 }});
 let only = null;
 document.querySelectorAll('.card').forEach(card => card.onclick = card.onkeydown = ev => {{
