@@ -7,6 +7,5 @@ DefiIgnas
 AltcoinSherpa
 EmberCN
 CryptoKaleo
-kale_abe
 ThinkingUSD
 ai_9684xtpa
