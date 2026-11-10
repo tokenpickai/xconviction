@@ -428,6 +428,10 @@ def trends(con):
     return out
 
 
+def _lean(up, down):
+    return "no views" if up + down == 0 else "mostly bullish" if up > 1.5 * down else "mostly bearish" if down > 1.5 * up else "split"
+
+
 def regime(rows, trend, now):
     """The weekly market call for a spot holder: Risk-on (alts fine), Rotate to BTC, or Risk-off (stables).
     Looks across every coin we track, not just a few: BTC's own trend, how many coins are beating BTC,
@@ -454,7 +458,8 @@ def regime(rows, trend, now):
     s_flow = -1 if flow < -3 else 1 if flow > 3 else 0
     reasons = [f"BTC {btc:+.1%} over 2 weeks" if btc is not None else "BTC trend: no data",
                f"{sum(v > 0 for v in alts)} of {len(alts)} tracked coins beat BTC (median {median:+.1%})" if alts else "alts vs BTC: no data",
-               f"KOLs: market {mk_up}▲ {mk_dn}▼, alts {al_up}▲ {al_dn}▼",
+               f"KOLs: {_lean(mk_up, mk_dn)} on BTC/market ({mk_up} bullish, {mk_dn} bearish); "
+               f"{_lean(al_up, al_dn)} on alts ({al_up} vs {al_dn} coin views)",
                "on-chain flow: " + ("net selling" if s_flow < 0 else "net buying" if s_flow > 0 else "mixed")]
     if s_btc < 0 and (s_mkt < 0 or s_flow < 0):
         return "Risk-off", "bearish", reasons
