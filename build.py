@@ -108,40 +108,47 @@ def size_note(r):
     return f'<span class="why">{pct} of daily volume</span> · '
 
 
-def flips_section(rows, week):
-    """Recent reversals: the clearest sign a trusted account changed its mind."""
-    out = []
-    for r in reversed([r for r in rows if r.get("flip") and r["created_at"] >= week]):
-        before = "bearish" if r["direction"] == "bullish" else "bullish"
-        pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
-        out.append(f'<li data-asset="{e(r["asset"])}">{pic}<b>{e(speaker(r))}</b> flipped on <b>{e(r["asset"])}</b>: '
-                   f'<span class="dir {before}">{before}</span> → <span class="dir {r["direction"]}">{r["direction"]}</span>'
-                   f'<div class="meta">{e(r["summary"])}<br>{when(r["created_at"])} · '
-                   f'<a href="https://x.com/{e(r["handle"])}/status/{r["post_id"]}">post</a></div></li>')
-    return f'<div class="flips"><div class="sub">Changed their mind</div><ul>{"".join(out[:5])}</ul></div>' if out else ""
-
-
 def chart(asset, series, rows):
-    """7-day price line for one coin, with each call/signal as a dot at its time and price (green up, red down)."""
-    W, H, P = 568, 150, 8
+    """7-day price chart for one coin with price (right) and date axes. Each KOL stance is a profile-picture
+    marker at its time and price, ringed green (bullish) or red (bearish) with a small arrow; hover names it."""
+    W, H, L, R, T, B = 568, 220, 8, 64, 14, 26
     t0, t1 = series[0][0] / 1000, series[-1][0] / 1000
     lo, hi = min(p for _, p in series), max(p for _, p in series)
-    x = lambda t: P + (t - t0) / (t1 - t0) * (W - 2 * P)
-    y = lambda v: H - P - (v - lo) / ((hi - lo) or 1) * (H - 2 * P)
+    pad = (hi - lo) * 0.08 or hi * 0.01
+    lo, hi = lo - pad, hi + pad
+    x = lambda t: L + (t - t0) / (t1 - t0) * (W - L - R)
+    y = lambda v: T + (hi - v) / (hi - lo) * (H - T - B)
+    grid, labels = [], []
+    for i in range(5):  # 5 evenly spaced price levels
+        v = lo + (hi - lo) * i / 4
+        grid.append(f'<line x1="{L}" x2="{W - R}" y1="{y(v):.1f}" y2="{y(v):.1f}" class="grid"/>')
+        labels.append(f'<text x="{W - R + 6}" y="{y(v) + 4:.1f}" class="axis">{f"${v:,.0f}" if v >= 100 else usd(v)}</text>')
+    day = datetime.fromtimestamp(t0, ZoneInfo("America/Vancouver")).replace(hour=0, minute=0, second=0) + timedelta(days=1)
+    while day.timestamp() < t1:  # midnight (Vancouver) gridlines with dates
+        xd = x(day.timestamp())
+        grid.append(f'<line x1="{xd:.1f}" x2="{xd:.1f}" y1="{T}" y2="{H - B}" class="grid"/>')
+        labels.append(f'<text x="{xd:.1f}" y="{H - 8}" class="axis" text-anchor="middle">{day:%b} {day.day}</text>')
+        day += timedelta(days=1)
     line = " ".join(f"{x(t / 1000):.1f},{y(v):.1f}" for t, v in series)
-    dots = []
-    for r in rows:
-        t = ts(r["created_at"])
-        if r["asset"] != asset or not t0 <= t <= t1 or not r["p0"]:
-            continue
-        tip = e(f'{speaker(r)} ({r["weight"]}, {local_time(r["created_at"])}): {r["summary"]}')
-        dots.append(f'<circle cx="{x(t):.1f}" cy="{y(min(max(r["p0"], lo), hi)):.1f}" r="{5 if r["weight"] == "high" else 4}" '
-                    f'class="{r["direction"]}{" chain" if r["kind"] == "onchain" else ""}"><title>{tip}</title></circle>')
+    marks = []
+    calls = [r for r in rows if r["asset"] == asset and r["kind"] == "call" and r["p0"] and t0 <= ts(r["created_at"]) <= t1]
+    for r in stances(sorted(calls, key=lambda r: r["created_at"])):  # one marker per stance, not per repeat post
+        cx, cy = x(ts(r["created_at"])), y(min(max(r["p0"], lo), hi))
+        up = r["direction"] == "bullish"
+        tip = e(f'{speaker(r)}: {r["direction"]} ({r["weight"]}) · {local_time(r["created_at"])} at {usd(r["p0"])}\n{r["summary"]}')
+        face = (f'<image href="avatars/{e(r["handle"])}.jpg" x="{cx - 10:.1f}" y="{cy - 10:.1f}" width="20" height="20" '
+                f'clip-path="url(#av-{e(asset)})"/>' if r["avatar"] else "")
+        marks.append(f'<g class="mk {r["direction"]}" transform="translate(0,0)"><title>{tip}</title>'
+                     f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11.5" class="ring"/>{face}'
+                     f'<circle cx="{cx + 9:.1f}" cy="{cy + 9:.1f}" r="5.5" class="badge"/>'
+                     f'<text x="{cx + 9:.1f}" y="{cy + 11.5:.1f}" class="arrow" text-anchor="middle">{"▲" if up else "▼"}</text></g>')
     change = series[-1][1] / series[0][1] - 1
     return (f'<div class="chart" data-asset="{e(asset)}" hidden><div class="chart-head"><b>{e(asset)}</b> {usd(series[-1][1])} '
-            f'<span class="dir {"bullish" if change >= 0 else "bearish"}">{change:+.1%}</span> <span class="meta">7d · dots are calls and signals</span></div>'
+            f'<span class="dir {"bullish" if change >= 0 else "bearish"}">{change:+.1%}</span> '
+            f'<span class="meta">7 days · hover a face for the call</span></div>'
             f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="{e(asset)} price over 7 days with calls marked">'
-            f'<polyline points="{line}" class="price"/>{"".join(dots)}</svg></div>')
+            f'<defs><clipPath id="av-{e(asset)}" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath></defs>'
+            f'{"".join(grid)}<polyline points="{line}" class="price"/>{"".join(labels)}{"".join(marks)}</svg></div>')
 
 
 def charts_section(con, rows):
@@ -157,7 +164,8 @@ def item(r, show_asset=True, why=None):
     """why=None: a normal item. why="..." (even empty): an Act now pick, with its reasons."""
     act = '<span class="act">Act now</span>' if why is not None else ""
     arrow = "▲" if r["direction"] == "bullish" else "▼"
-    flip = '<span class="flip">flipped</span>' if r.get("flip") else ""
+    was = "bearish" if r["direction"] == "bullish" else "bullish"
+    flip = f'<span class="flip" title="changed from {was} to {r["direction"]}">flipped from {was}</span>' if r.get("flip") else ""
     asset = f'<b class="asset">{e(r["asset"])}</b>' if show_asset else ""
     snap = ' <span class="wt snap">position</span>' if r.get("snapshot") else ""
     pic = f'<img class="av" src="avatars/{e(r["handle"])}.jpg" alt="">' if r["avatar"] else ""
@@ -463,11 +471,11 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 .card{{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid transparent;border-radius:999px;font-size:15px;cursor:pointer;white-space:nowrap}}
 .card:hover{{background:var(--tile)}} .card.on{{border-color:var(--fg)}} .card b{{margin-right:auto}}
 .charts .chart{{padding:16px 16px 4px;border-bottom:1px solid var(--line)}} .chart svg{{width:100%;height:auto;display:block;margin-top:8px}}
-.chart .price{{fill:none;stroke:var(--mute);stroke-width:1.5}} .chart circle{{stroke:var(--bg);stroke-width:1.5}}
-.chart circle.bullish{{fill:var(--up)}} .chart circle.bearish{{fill:var(--down)}} .chart circle.chain{{opacity:.55}}
+.chart .price{{fill:none;stroke:var(--fg);stroke-width:1.5;opacity:.8}} .chart .grid{{stroke:var(--line);stroke-width:1}}
+.chart .axis{{fill:var(--mute);font-size:11px}} .chart .mk .ring{{fill:var(--tile);stroke-width:2.5}}
+.chart .mk.bullish .ring,.chart .mk.bullish .badge{{stroke:var(--up);fill:var(--up)}} .chart .mk.bearish .ring,.chart .mk.bearish .badge{{stroke:var(--down);fill:var(--down)}}
+.chart .mk .ring{{fill:var(--tile)}} .chart .arrow{{fill:#fff;font-size:7px}} .chart .mk:hover .ring{{stroke-width:4}} .chart .mk{{cursor:default}}
 .chart-head .meta{{display:inline;margin-left:6px}}
-.flips{{border-bottom:1px solid var(--line)}} .flips .sub{{padding:12px 16px 0;font-size:13px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.5px}}
-.flips li{{border-bottom:0}}
 .label{{margin:20px 0 0;font-size:13px;font-weight:700;color:var(--hi);text-transform:uppercase;letter-spacing:.5px}}
 .why{{color:var(--fg);font-weight:500}}
 .wr{{font-size:12px;font-weight:500;color:var(--mute)}} .wr.good{{color:var(--up)}} .wr.bad{{color:var(--down)}}
@@ -482,7 +490,7 @@ footer{{margin:24px 0 8px;font-size:13px;color:var(--mute);text-align:center}}
 </div></aside><main>
 {charts_html}
 <div class="tabs" role="tablist"><button role="tab" data-tab="calls">Calls</button><button role="tab" data-tab="onchain">On-chain</button></div>
-<div id="calls" role="tabpanel">{flips_section(rows, week)}{paged(pinned(calls, whys), whys)}</div>
+<div id="calls" role="tabpanel">{paged(pinned(calls, whys), whys)}</div>
 <div id="onchain" role="tabpanel">{paged(pinned(chain, whys), whys)}</div>
 <footer><span class="updated" data-t="{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"></span>{f" · {spend_html}" if spend_html else ""}</footer>
 </main><aside class="right"><div class="right-inner">{emerging_html}</div></aside></div>

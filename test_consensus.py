@@ -87,6 +87,6 @@ assert (resize(dict(usd=20e6), 15e9), ) and resize(r1 := dict(usd=20e6), 15e9) <
 assert resize(r2 := dict(usd=20e6), 100e6) == 0.2 and r2["weight"] == "high"
 # chart: one dot per in-range item, coloured by direction
 svg = chart("ZEC", [[1762300000000, 1300], [1762900000000, 1170]], [dict(asset="ZEC", created_at="2025-11-08T00:00:00Z", p0=1250,
-    direction="bullish", kind="call", weight="high", summary="s", handle="k", name="K")])
-assert svg.count("<circle") == 1 and 'class="bullish"' in svg
+    direction="bullish", kind="call", weight="high", summary="s", handle="k", name="K", avatar=True)])
+assert svg.count('class="mk bullish"') == 1 and "avatars/k.jpg" in svg and 'class="axis"' in svg
 print("ok")
