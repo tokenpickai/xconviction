@@ -582,8 +582,7 @@ def scorecard(con):
     rows = con.execute("select asset, direction, p0, b0, p72, b72 from act_log").fetchall()
     done = [r for r in rows if r[4]]
     if not done:
-        return (f'<div class="record">Act now record: {len(rows)} pick{"s" * (len(rows) != 1)} logged, '
-                f'first results {LOOKBACK_H}h after each pick. Treat Act now as unproven until this fills in.</div>')
+        return ""  # nothing scored yet: show nothing rather than a placeholder
     rel = [(p72 / p0 - 1 - (0 if a == "BTC" else b72 / b0 - 1)) * (1 if d == "bullish" else -1) for a, d, p0, b0, p72, b72 in done]
     wins = sum(x > 0 for x in rel)
     return (f'<div class="record">Act now record: <b>{wins}/{len(done)}</b> picks beat BTC {LOOKBACK_H}h later '

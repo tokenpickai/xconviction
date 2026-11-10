@@ -97,7 +97,7 @@ lg.executemany("insert into coins values(?,?)", [("SOL", 100), ("BTC", 50000)])
 pick = dict(post_id="p", asset="SOL", direction="bullish", kind="onchain", handle="h")
 log_picks(lg, [(pick, 1, 0)], now); log_picks(lg, [(pick, 1, 0)], now)
 assert lg.execute("select count(*) from act_log").fetchone()[0] == 1
-assert "1 pick logged" in scorecard(lg)
+assert scorecard(lg) == ""
 lg.executemany("update coins set price=? where symbol=?", [(110, "SOL"), (50000, "BTC")])
 score_picks(lg, now + timedelta(hours=73))
 assert "1/1" in scorecard(lg) and "+10.0%" in scorecard(lg), scorecard(lg)
