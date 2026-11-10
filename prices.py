@@ -73,34 +73,21 @@ def fill(con, coins, now):
     return len(need)
 
 
-MAJORS = ("BTC", "ETH", "SOL", "BNB", "XRP")
-
-
-def history(con, coins, now, max_age=6 * 3600):
-    """30-day hourly prices for the majors, for 2-week trends and the market call. Refreshed every 6 hours."""
-    con.execute("create table if not exists history(symbol text primary key, data text, updated_at real)")
-    have = dict(con.execute("select symbol, updated_at from history"))
-    n = 0
-    for a in MAJORS:
-        if a in coins and now - (have.get(a) or 0) >= max_age:
-            data = get(f"/coins/{coins[a][0]}/market_chart?vs_currency=usd&days=30")["prices"]
-            con.execute("insert or replace into history values(?,?,?)", (a, json.dumps(data), now))
-            n += 1
-            time.sleep(3)
-    con.commit()
-    return n
-
-
 def charts(con, coins, now, max_age=6 * 3600, top=25):
-    """7-day hourly price series for the 25 most-discussed coins of the week, refreshed when 6+ hours old."""
+    """14-day hourly price series for BTC and the 25 most-discussed coins of the week, refreshed when 6+ hours old.
+    Used for the coin charts and for every coin's 2-week trend vs BTC."""
     # ponytail: CoinGecko's free tier throttles bursts hard (36 charts took 11 min locally), so cap the count and refresh rarely
     week = datetime.fromtimestamp(now - 7 * 86400).strftime("%Y-%m-%dT%H:%M:%S")
-    have = dict(con.execute("select symbol, updated_at from series"))
+    have = {}
+    for sym, t, data in con.execute("select symbol, updated_at, data from series"):
+        d = json.loads(data)
+        # an older 7-day series counts as stale, so it's refetched at 14 days
+        have[sym] = t if d and (d[-1][0] - d[0][0]) / 1000 >= 13 * 86400 else 0
     n = 0
     for (a,) in con.execute("""select asset from calls where created_at >= ? and asset != 'CRYPTO'
-            group by asset order by count(*) desc limit ?""", (week, top)).fetchall():
+            group by asset order by count(*) desc limit ?""", (week, top)).fetchall() + [("BTC",)]:
         if a in coins and now - (have.get(a) or 0) >= max_age:
-            data = get(f"/coins/{coins[a][0]}/market_chart?vs_currency=usd&days=7")["prices"]
+            data = get(f"/coins/{coins[a][0]}/market_chart?vs_currency=usd&days=14")["prices"]
             con.execute("insert or replace into series values(?,?,?)", (a, json.dumps(data), now))
             n += 1
             time.sleep(3)
@@ -122,4 +109,4 @@ if __name__ == "__main__":
     con.executemany("insert into coins(symbol, id, price, updated_at, volume) values(?,?,?,?,?)",
                     [(s, *v, vol[s]) for s, v in coins.items()])
     con.commit()
-    print(f"{len(coins)} coins, {fill(con, coins, time.time())} call price rows filled, {charts(con, coins, time.time())} charts and {history(con, coins, time.time())} histories refreshed")
+    print(f"{len(coins)} coins, {fill(con, coins, time.time())} call price rows filled, {charts(con, coins, time.time())} charts refreshed")

@@ -43,7 +43,7 @@ Two kinds of item:
    - A post covering several assets gives one item per asset.
    - Skip moves by hackers, exploiters and scammers (laundering or dumping stolen funds): no item.
    - snapshot: true when the post describes a position or holding that already exists ("holds", "is sitting on", "still has", "unrealized profit", "current position") without a new action. false when it reports an action that just happened (bought, sold, deposited, withdrew, opened, closed, added to, got liquidated, flows today). For "call" items, always false.
-   - proven: true when the post credits the actor with a strong track record: a high win rate ("88% win rate", "10/10 wins"), large realized profits, called "smart money"/"top trader", or a well-known fund. Not unknown whales, not traders described by losses. For "call" items, always false.
+   - proven: true only when the post credits a trader (a wallet or person who trades) with a strong personal track record: a high win rate ("88% win rate", "10/10 wins"), large realized trading profits, or "smart money"/"top trader". Not institutions moving client or fund assets (ETF issuers like BlackRock, ARK, Bitwise; exchanges; market makers' transfers), not unknown whales, not traders described by losses. For "call" items, always false.
    - usd: the USD size of the move or position as stated or computable from the post (e.g. 45300000 for "$45.3M"); 0 if not given. For "call" items, always 0.
 
 asset: the ticker in upper case without "$" (BTC, ETH, SOL, ZEC, HYPE). Use "CRYPTO" for the market as a whole. Never a contract or wallet address: if the post only gives an address, use the ticker if the post names it, otherwise leave that item out.
