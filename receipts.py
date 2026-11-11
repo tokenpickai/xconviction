@@ -50,6 +50,10 @@ def victory_laps(con, client, week, posts=None):
     return laps
 
 
+def fetch_client():
+    return anthropic.Anthropic(api_key=extract.env("ANTHROPIC_API_KEY"))
+
+
 def outcome(r, price, series, now):
     """How a stance has done so far vs BTC, in the called direction (BTC calls: its own move). None if unpriced."""
     t = build.ts(r["created_at"])
