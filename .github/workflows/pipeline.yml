@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install anthropic
+      - run: pip install anthropic playwright
 
       - name: Restore database
         run: |
@@ -56,6 +56,15 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - run: python build.py
+
+      - name: Larp alerts
+        # victory laps and fresh misses to Telegram; uses the runner's preinstalled Chrome for the images
+        continue-on-error: true
+        run: python alerts.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
       - name: Save database
         # the data branch holds only the latest copy, so the db never bloats history
