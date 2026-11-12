@@ -36,6 +36,7 @@ Two kinds of item:
        medium = a clear directional view, some reasoning, no stated position; or saying he still holds / hasn't sold a position (bullish).
        low    = casual, hedged or conditional ("if X gets attention, maybe..."), or a short throwaway reply.
    - When unsure between two weights, pick the lower one.
+   - Lists and baskets: when a post names 3+ coins as examples of a theme, outlook or watchlist ("OG devs get rewarded: $FLUID $AAVE $UNI etc."), each coin is weight low. That's a thesis about a group, not a call on each coin. Only a coin he singles out with its own reasoning, target or position gets medium or high.
    - Exits count as calls. Closing, cutting, taking profit on or capitulating a position ("closed my longs", "sold", "capitulated", "cut it") is a bearish call on that coin at the position's weight, even if he keeps a smaller or spot bag.
    - A long-term belief stated alongside an exit ("still holding spot, will be huge in 2027") is a separate bullish item with weight low: the user trades on a days-to-weeks horizon, so what he just did matters more than a distant hope. Only weight a long-term view higher if he adds to the position.
 
