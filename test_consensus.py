@@ -85,6 +85,8 @@ assert silent(sc, {"a", "b"}, now) == ["b"]
 # resize: the same $20M is noise on a big coin and huge on a small one
 assert (resize(dict(usd=20e6), 15e9), ) and resize(r1 := dict(usd=20e6), 15e9) < 0.01 and r1["weight"] == "low"
 assert resize(r2 := dict(usd=20e6), 100e6) == 0.2 and r2["weight"] == "high"
+resize(r3 := dict(usd=37e6, proven=1, snapshot=0), 40e9); assert r3["weight"] == "medium"  # proven trader's big BTC short
+resize(r4 := dict(usd=37e6, proven=1, snapshot=1), 40e9); assert r4["weight"] == "low"  # but not a standing position
 # chart: one dot per in-range item, coloured by direction
 svg = chart("ZEC", [[1762300000000, 1300], [1762900000000, 1170]], [dict(asset="ZEC", created_at="2025-11-08T00:00:00Z", p0=1250,
     direction="bullish", kind="call", weight="high", summary="s", handle="k", name="K", avatar=True)])

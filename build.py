@@ -58,6 +58,8 @@ def resize(r, volume):
     share = r["usd"] / volume
     # ponytail: hand-set cut-offs (5% of a day's volume = high, 1% = medium); tune with more data
     r["weight"] = "high" if share >= 0.05 else "medium" if share >= 0.01 else "low"
+    if r.get("proven") and not r.get("snapshot") and r["usd"] >= 10e6 and r["weight"] == "low":
+        r["weight"] = "medium"  # a proven trader's fresh $10M+ bet matters even on BTC, where it's under 1% of volume
     return share
 
 
