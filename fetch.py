@@ -78,13 +78,15 @@ def kind(t, uid):
     return "post"
 
 
-def fetch(con, handle, tok, days, max_posts=None):
+def fetch(con, handle, tok, days, max_posts=None, start=None):
     # recent search (7-day window) instead of the user timeline: the timeline endpoint
     # returned truncated/empty pages inconsistently; search returned the full set every time
     last = con.execute("select max(id) from posts where handle=?", (handle,)).fetchone()[0]
     params = {"query": f"from:{handle} -is:retweet", "max_results": 100,
               "tweet.fields": FIELDS + ",author_id"}
-    if last and days is None:
+    if start:  # resuming after a pause: skip the backlog
+        params["start_time"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif last and days is None:
         params["since_id"] = last
     else:
         start = datetime.now(timezone.utc) - timedelta(days=days or 3)
@@ -115,6 +117,14 @@ def _pages(con, handle, tok, params, max_posts, counter):
         time.sleep(1)
 
 
+def resume_from(con, now, gap=timedelta(hours=3)):
+    """After a pause (no fetch for 3h+), read only posts since the last fetch, at most the last 24h.
+    X and Anthropic bill per post, so catching up on a paused week would just delay the bill."""
+    (last,) = con.execute("select max(at) from usage where item = 'x_posts'").fetchone()
+    if last and now - datetime.fromisoformat(last.replace("Z", "+00:00")) > gap:
+        return max(now - timedelta(hours=24), datetime.fromisoformat(last.replace("Z", "+00:00")))
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int)
@@ -127,4 +137,4 @@ if __name__ == "__main__":
     if missing or datetime.now(timezone.utc).hour == 12:
         names(con, handles if not missing else missing, tok)
     for h in handles:
-        fetch(con, h, tok, args.days)
+        fetch(con, h, tok, args.days, start=resume_from(con, datetime.now(timezone.utc)))

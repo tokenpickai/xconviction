@@ -121,3 +121,17 @@ ow.execute("create table calls(handle, kind, asset, direction)")
 ow.executemany("insert into calls values(?,?,?,?)", [("k", "call", "ZCAT", "bullish")] * 15 + [("k", "call", "ZEC", "bullish")] * 6 + [("d", "call", "BTC", "bullish")] * 12 + [("d", "call", "ETH", "bearish")] * 10)
 assert one_way(ow, "k") and not one_way(ow, "d")
 print("ok")
+
+# fetch.resume_from: a real pause skips the backlog
+import sqlite3 as _sq
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+import fetch as _f
+_c = _f.db(":memory:"); _now = _dt(2026, 11, 15, 12, tzinfo=_tz.utc)
+assert _f.resume_from(_c, _now) is None  # fresh database
+_c.execute("insert into usage values('2026-11-15T11:05:00Z','x_posts',3,0)")
+assert _f.resume_from(_c, _now) is None  # ran an hour ago: normal since_id fetch
+_c.execute("insert into usage values('2026-11-15T07:05:00Z','x_posts',3,0)"); _c.execute("delete from usage where at like '%11:05%'")
+assert _f.resume_from(_c, _now) == _dt(2026, 11, 15, 7, 5, tzinfo=_tz.utc)  # short pause: just the gap
+_c.execute("delete from usage"); _c.execute("insert into usage values('2026-11-10T07:05:00Z','x_posts',3,0)")
+assert _f.resume_from(_c, _now) == _now - _td(hours=24)  # long pause: last 24h only
+print("resume ok")
